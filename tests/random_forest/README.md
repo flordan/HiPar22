@@ -7,7 +7,7 @@ Folder `application` contains the maven project to build the application. The so
 
 The `randomforest.RandomForest` class is the main class of the `FLAT` version of the application. In this version of the algorithm, two methods are selected as tasks: `randomSelection` and `trainTreeWithDataset` as indicated in `randomforest.RandomForestItf` interface. This version accepts two parameters: the number of models to train on one execution and the number of estimators for each model. By default, it creates one model of 1 estimator.
 
-The `randomforest.batch.RandomForest` class is the main class of the `FLAT` version of the application. In this version of the algorithm, three methods are selected as tasks: `generateTaskBatch`, `randomSelection` and `trainTreeWithDataset` as indicated in `randomforest.batch.RandomForestItf` interface. While `generateTaskBatch` can be executed by any node of the infrastructure reserving 48 cores of the node, the other two tasks can only be executed in the same node that detected them sugin a single core. This version accepts three parameters: the number of models to train on one execution, the number of estimators for each model and the size of the batch - at least, 48 . By default, it creates 1 model of 1 estimator in one single batch.
+The `randomforest.batch.RandomForest` class is the main class of the `NESTED` version of the application. In this version of the algorithm, three methods are selected as tasks: `generateTaskBatch`, `randomSelection` and `trainTreeWithDataset` as indicated in `randomforest.batch.RandomForestItf` interface. While `generateTaskBatch` can be executed by any node of the infrastructure reserving 48 cores of the node, the other two tasks can only be executed in the same node that detected them sugin a single core. This version accepts three parameters: the number of models to train on one execution, the number of estimators for each model and the size of the batch - at least, 48 . By default, it creates 1 model of 1 estimator in one single batch.
 
 # Test Execution
 To launch the application, users can directly call the `launch` script within the test folder passing in the indicated parameters for the version.
@@ -21,4 +21,8 @@ Otherwise, the user can use the `launch_test` script in the root folder of the r
 > docker run --rm francesclordan/hipar22:latest random_forest <FLAT|NESTED> [NUM_MODELS [NUM_ESTIMATORS [BATCH_SIZE]]]
 ```
 
-The script `enqueue` can be used to submit the execution onto the queue system of a supercomputer. Execution times can be retrieved with the `get_exec_times` script.
+The script `enqueue` can be used to submit the execution onto the queue system of a supercomputer. Execution times can be retrieved with the `get_times` script which returns a list with an entry for each execution detailing the execution id, the number of nodes used, the number of estimators and the training time in ms for each execution.
+```bash
+> enqueue <num_nodes> <FLAT|NESTED> [NUM_MODELS [NUM_ESTIMATORS]]
+> get_times
+```
