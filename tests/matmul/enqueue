@@ -1,0 +1,81 @@
+#!/bin/bash
+
+# Define script constants
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+
+# QUEUE SYSTEM PARAMETERS
+if [ "${#}" -eq "0" ]; then
+  echo "Please indicate number of nodes to be used."
+fi
+num_nodes=${1}
+exec_time=120
+shift 1
+
+if [ "${#}" -eq 0 ]; then
+  echo "Select application version: FLAT | NESTED"
+fi
+version="${1}"
+if [ "${version}" == "FLAT" ]; then
+  shift 1
+  invocation="_flat"
+elif [ "${version}" == "NESTED" ]; then
+  shift 1
+  invocation="_paths"
+else 
+  echo "Unknown application version ${1}. Select application version: FLAT | NESTED"
+  exit 1
+fi
+
+num_matmuls=${1}
+if [ -z "${num_matmuls}" ]; then
+  num_matmuls=1
+fi
+
+matrix_size=${2}
+if [ -z "${matrix_size}" ]; then
+  matrix_size=16384
+fi
+
+final_block_size=${3}
+if [ -z "${final_block_size}" ]; then
+  final_block_size=8192
+fi
+
+splits_per_step=${4}
+if [ -z "${splits_per_step}" ]; then
+  splits_per_step=2
+fi
+
+
+echo "Enqueueing Matmul's Recusive ${version} version with matrices of ${matrix_size}x${matrix_size} with blocks of ${final_block_size}x${final_block_size} doing a ${splits_per_step}x${splits_per_step} partition on each recursive step"
+
+    # Create output directory
+  output_dir="${SCRIPT_DIR}/output"
+  mkdir -p "${output_dir}"
+
+  # Run job
+  enqueue_compss \
+    --lang="python" \
+    \
+    --num_nodes="${num_nodes}" \
+    --exec_time="${exec_time}" \
+    \
+    --cpus_per_node=48 \
+    --node_memory=50000 \
+    --worker_in_master_cpus=48 \
+    \
+    --master_working_dir="${output_dir}/" \
+    --worker_working_dir="${output_dir}/" \
+    --base_log_dir="${output_dir}" \
+    --pythonpath="${SCRIPT_DIR}/application" \
+    \
+    --log_level="off" \
+    --jvm_workers_opts="-Dcompss.worker.removeWD=false" \
+    \
+    --agents \
+    \
+    --method_name="main" \
+    "recursive_matmul${invocation}" \
+    "${num_matmuls}" "${matrix_size}" "${final_block_size}" "${splits_per_step}"
+

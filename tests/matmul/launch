@@ -1,0 +1,106 @@
+#!/bin/bash
+if [ "${#}" -eq 0 ]; then
+  echo "Select application version: FLAT | NESTED"
+fi
+version="${1}"
+if [ "${version}" == "FLAT" ]; then
+  shift 1
+  invocation="_flat"
+elif [ "${version}" == "NESTED" ]; then
+  shift 1
+  invocation="_paths"
+else 
+  echo "Unknown application version ${1}. Select application version: FLAT | NESTED"
+  exit 1
+fi
+
+num_matmuls=${1}
+if [ -z "${num_matmuls}" ]; then
+  num_matmuls=1
+fi
+
+matrix_size=${2}
+if [ -z "${matrix_size}" ]; then
+  matrix_size=16384
+fi
+
+final_block_size=${3}
+if [ -z "${final_block_size}" ]; then
+  final_block_size=8192
+fi
+
+splits_per_step=${4}
+if [ -z "${splits_per_step}" ]; then
+  splits_per_step=2
+fi
+
+
+echo "Running Matmul's Recusive ${version} version with matrices of ${matrix_size}x${matrix_size} with blocks of ${final_block_size}x${final_block_size} doing a ${splits_per_step}x${splits_per_step} partition on each recursive step"
+
+base_app_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+NUM_RETRIES="3"
+
+log_dir="/tmp/test/"
+mkdir -p "${log_dir}"
+output_log="${log_dir}test.outputlog"
+error_log="${log_dir}test.errorlog"
+touch "${output_log}"
+touch "${error_log}"
+
+
+echo "Start Agents"
+echo "    Starting Agent1"
+agent_log_dir="${log_dir}/COMPSsWorker01/"
+agent_output_log="${log_dir}/COMPSsWorker01.outputlog"
+agent_error_log="${log_dir}/COMPSsWorker01.errorlog"
+
+compss_agent_start \
+  --hostname="COMPSsWorker01" \
+  --pythonpath="${base_app_dir}/application" \
+  --log_dir="${agent_log_dir}" \
+  --rest_port="46101" \
+  --comm_port="46102" \
+  --project="${base_app_dir}/project.xml" \
+  --resources="${base_app_dir}/resources.xml" \
+  1>"${agent_output_log}" 2>"${agent_error_log}" &
+
+agent_PID=${!}  
+
+sleep 5
+
+echo "Checking Agents"
+  retries="${NUM_RETRIES}"
+  curl -XGET "http://127.0.0.1:46101/COMPSs/test" 1>/dev/null 2>/dev/null
+  exit_val=$?
+  while [ ! "${exit_val}" == "0" ] && [ "${retries}" -gt "0" ]; do
+    sleep 1
+    retries=$((retries - 1 ))
+    curl -XGET "http://127.0.0.1:46101/COMPSs/test" 1>/dev/null 2>/dev/null
+    exit_val=$?
+  done
+  if [ ${exit_val} != 0 ]; then
+    echo "    Agent1 could not be started"
+    exit 1
+  fi
+echo "    Agent1 started"
+
+echo "Calling operation"
+compss_agent_call_operation \
+   --lang=PYTHON \
+   --master_node="127.0.0.1" \
+   --master_port="46101" \
+   --method_name="main" \
+   --stop \
+   recursive_matmul${invocation} \
+  "${num_matmuls}" "${matrix_size}" "${final_block_size}" "${splits_per_step}"
+
+echo "Waiting for result"
+wait ${agent_PID}
+
+times=$(grep "Time spent multiplying" "${agent_log_dir}/jobs/job1_NEW.out" | tail -n +2 |sed 's/Time spent multiplying: //')
+model_id=1
+for time in ${times}; do
+  echo "Multiplication ${model_id}: ${time} ms"  
+  model_id=$(( model_id + 1 ))
+done

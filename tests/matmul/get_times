@@ -1,0 +1,13 @@
+#!/bin/bash
+
+  for folder_exec in output/.COMPSs/*; do
+    exec=$(echo ${folder_exec} | sed "s/output\/\.COMPSs\///");
+    nodes=$(grep "Workers:" output/compss-${exec}.out | wc -w);
+    master=$(ls ${folder_exec} | sort| head -n1);
+    matrix_size=$(grep "Multiplying (" ${folder_exec}/${master}/jobs/job1_NEW.out | awk '{print $2}');
+    block_size=$(grep "Divided into blocks" ${folder_exec}/${master}/jobs/job1_NEW.out | awk '{print $5}');
+    times=$(grep "Time spent multiplying" ${folder_exec}/${master}/jobs/job1_NEW.out| tail -n +2 |sed 's/Time spent multiplying: //' | tr '\n' " ");
+
+    echo "${exec}" "${nodes}" "${matrix_size}" "${block_size}" "${times}"
+
+  done

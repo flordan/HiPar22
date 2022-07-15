@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ResourcesList>
+    <SharedDisk Name="sharedDisk0">
+        <Storage>
+            <Size>4000.0</Size>
+            <Type>Persistent</Type>
+        </Storage>
+    </SharedDisk>
+</ResourcesList>
