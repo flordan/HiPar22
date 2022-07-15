@@ -27,5 +27,16 @@ To install COMPSs on a laptop from its sources run:
 To install the runtime on supercomputers, there is additional information on the [Installing in Supercomputers](https://compss-doc.readthedocs.io/en/3.0/Sections/01_Installation/04_Supercomputers.html#) page from COMPSs' official documentation.
 
 ## LAUNCHING THE TESTS
-The repository provides a script to launch all the experiments `launch_test`. The README file within each test's folder describes how to launch the test on a baremetal installation, using the container or enqueuing the execution in a cluster managed with a queue system.
+The repository provides a script to launch all the experiments `launch_test`. The README file within each test's folder describes how to launch the test on a bare-metal installation, using the container or enqueuing the execution in a cluster managed with a queue system.
 
+The `launch_test` script allows launching bare-metal executions indicating the test application (random_forest, gridsearch and matmul) and version as parameters. Once selected, each application accepts different parameters that are further detailed in the README file within the corresponding folder.
+```bash
+> launch_test <app> <version> [parameters]
+```
+
+The container automatically calls this script; therefor it is only necessary to indicate the application, version and parameters.
+```bash
+> docker run --rm francesc.lordan/hipar22:latest <app> <version> [parameters]
+```
+
+To run tests on supercomputers, each folder contains a script that enqueues the corresponding execution using the same parameters.
