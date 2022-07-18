@@ -1,1 +1,6 @@
 # HiPar22 - Test - Grid Search
+
+The grid search algorithm with cross-validation is an algorithm that exhaustively looks for all the different combinations of hyperparameters for a particular model. Choosing the right hyper-parameters for an algorithm is key to having a good performance of the model, using grid search will make an exhaustive search of all the combinations that the user proposes. The algorithm computes a grid with all the combinations of hyperparameters to explore, and trains and evaluates several models (splits) for each combination. Using cross-validation means that the final score obtained for a combination is the average of the scoring of all its different splits.
+
+# APPLICATION SOURCE CODE
+ Grid Search is an algorithm offered within [dislib](https://dislib.readthedocs.io/), a Python library built on top of PyCOMPSs providing distributed mathematical and machine learning algorithms. This paper compares the performance obtained with the original version to an adapted implementation (nested version) encapsulating the training and evaluation of a model within a task when finding the optimal parameters to train a classification model (CSVM) to identify breast cancer.
