@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<checkstyle version="8.18">
+<file name="/home/flordan/git/compss/framework/tests/sources/local/zfrancesc/1_tracing_agents/src/main/java/tracing/DemoClassImpl.java">
+<error line="23" column="5" severity="warning" message="Missing a Javadoc comment." source="com.puppycrawl.tools.checkstyle.checks.javadoc.JavadocMethodCheck"/>
+</file>
+<file name="/home/flordan/git/compss/framework/tests/sources/local/zfrancesc/1_tracing_agents/src/main/java/tracing/DemoClassItf.java">
+</file>
+<file name="/home/flordan/git/compss/framework/tests/sources/local/zfrancesc/1_tracing_agents/src/main/java/tracing/DemoClass.java">
+<error line="11" column="5" severity="warning" message="Missing a Javadoc comment." source="com.puppycrawl.tools.checkstyle.checks.javadoc.JavadocMethodCheck"/>
+</file>
+</checkstyle>

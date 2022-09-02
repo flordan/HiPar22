@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OptimizationAction.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">COMPSs Scheduler Full Graph Multi-Objetive</a> &gt; <a href="index.source.html" class="el_package">es.bsc.compss.scheduler.multiobjective.types</a> &gt; <span class="el_source">OptimizationAction.java</span></div><h1>OptimizationAction.java</h1><pre class="source lang-java linenums">/*
+ *  Copyright 2002-2021 Barcelona Supercomputing Center (www.bsc.es)
+ *
+ *  Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ */
+package es.bsc.compss.scheduler.multiobjective.types;
+
+import es.bsc.compss.components.impl.ResourceScheduler;
+import es.bsc.compss.scheduler.exceptions.BlockedActionException;
+import es.bsc.compss.scheduler.exceptions.FailedActionException;
+import es.bsc.compss.scheduler.exceptions.UnassignedActionException;
+import es.bsc.compss.scheduler.multiobjective.MOSchedulingInformation;
+import es.bsc.compss.scheduler.types.AllocatableAction;
+import es.bsc.compss.scheduler.types.Score;
+import es.bsc.compss.types.annotations.parameter.OnFailure;
+import es.bsc.compss.types.implementations.Implementation;
+
+import es.bsc.compss.types.resources.Worker;
+import es.bsc.compss.types.resources.WorkerResourceDescription;
+import es.bsc.compss.worker.COMPSsException;
+
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Set;
+
+
+public class OptimizationAction extends AllocatableAction {
+
+    /**
+     * Creates a new OptimizationAction instance.
+     */
+    public OptimizationAction() {
+<span class="fc" id="L44">        super(new MOSchedulingInformation(null), null);</span>
+<span class="fc" id="L45">        MOSchedulingInformation asi = (MOSchedulingInformation) this.getSchedulingInfo();</span>
+<span class="fc" id="L46">        asi.scheduled();</span>
+<span class="fc" id="L47">        asi.setOnOptimization(true);</span>
+<span class="fc" id="L48">        asi.setExpectedStart(0);</span>
+<span class="fc" id="L49">        asi.setExpectedEnd(Long.MAX_VALUE);</span>
+<span class="fc" id="L50">    }</span>
+
+    @Override
+    protected void doAction() {
+        // Nothing to do
+<span class="nc" id="L55">    }</span>
+
+    @Override
+    protected void doAbort() {
+        // Nothing to do
+<span class="nc" id="L60">    }</span>
+
+    @Override
+    protected void doCompleted() {
+        // Nothing to do
+<span class="nc" id="L65">    }</span>
+
+    @Override
+    protected void doError() throws FailedActionException {
+        // Nothing to do
+<span class="nc" id="L70">    }</span>
+
+    @Override
+    protected void doFailed() {
+        // Nothing to do
+<span class="nc" id="L75">    }</span>
+
+    @Override
+    protected void doCanceled() {
+        // Nothing to do
+<span class="nc" id="L80">    }</span>
+
+    @Override
+    protected void doFailIgnored() {
+        // Nothing to do
+<span class="nc" id="L85">    }</span>
+
+    @Override
+    protected void doException(COMPSsException e) {
+        // Nothing to do
+<span class="nc" id="L90">    }</span>
+
+    @Override
+    public Integer getCoreId() {
+<span class="nc" id="L94">        return null;</span>
+    }
+
+    @Override
+    public LinkedList&lt;ResourceScheduler&lt;? extends WorkerResourceDescription&gt;&gt; getCompatibleWorkers() {
+<span class="nc" id="L99">        return null;</span>
+    }
+
+    @Override
+    public Implementation[] getImplementations() {
+<span class="nc" id="L104">        return null;</span>
+    }
+
+    @Override
+    public &lt;W extends WorkerResourceDescription&gt; boolean isCompatible(Worker&lt;W&gt; r) {
+<span class="nc" id="L109">        return true;</span>
+    }
+
+    @Override
+    public &lt;T extends WorkerResourceDescription&gt; LinkedList&lt;Implementation&gt;
+        getCompatibleImplementations(ResourceScheduler&lt;T&gt; r) {
+<span class="nc" id="L115">        return null;</span>
+    }
+
+    @Override
+    public int getPriority() {
+<span class="nc" id="L120">        return 0;</span>
+    }
+
+    @Override
+    public long getGroupPriority() {
+<span class="nc" id="L125">        return ACTION_OPTIMIZE;</span>
+    }
+
+    @Override
+    public OnFailure getOnFailure() {
+<span class="nc" id="L130">        return OnFailure.RETRY;</span>
+    }
+
+    @Override
+    public &lt;T extends WorkerResourceDescription&gt; Score schedulingScore(ResourceScheduler&lt;T&gt; targetWorker,
+        Score actionScore) {
+<span class="nc" id="L136">        return null;</span>
+    }
+
+    @Override
+    public void schedule(Score actionScore) throws BlockedActionException, UnassignedActionException {
+
+<span class="nc" id="L142">    }</span>
+
+    @Override
+    public &lt;T extends WorkerResourceDescription&gt; void schedule(ResourceScheduler&lt;T&gt; targetWorker, Score actionScore)
+        throws BlockedActionException, UnassignedActionException {
+
+<span class="nc" id="L148">    }</span>
+
+    @Override
+    public &lt;T extends WorkerResourceDescription&gt; void schedule(ResourceScheduler&lt;T&gt; targetWorker, Implementation impl)
+        throws BlockedActionException, UnassignedActionException {
+
+<span class="nc" id="L154">    }</span>
+
+    @Override
+    public boolean isToReserveResources() {
+<span class="nc" id="L158">        return true;</span>
+    }
+
+    @Override
+    public boolean isToReleaseResources() {
+<span class="nc" id="L163">        return true;</span>
+    }
+
+    @Override
+    public boolean isToStopResource() {
+<span class="nc" id="L168">        return true;</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="nc" id="L173">        return &quot;Scheduling blocking action&quot;;</span>
+    }
+
+    @Override
+    public boolean checkIfCanceled(AllocatableAction aa) {
+<span class="nc" id="L178">        return false;</span>
+    }
+
+    @Override
+    protected void stopAction() throws Exception {
+<span class="nc" id="L183">    }</span>
+
+    @Override
+    public List&lt;ResourceScheduler&lt;?&gt;&gt; tryToSchedule(Score actionScore, Set&lt;ResourceScheduler&lt;?&gt;&gt; availableWorkers)
+        throws BlockedActionException, UnassignedActionException {
+<span class="nc" id="L188">        return null;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

@@ -1,0 +1,1014 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MOResourceOptimizer.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">COMPSs Scheduler Full Graph Multi-Objetive</a> &gt; <a href="index.source.html" class="el_package">es.bsc.compss.scheduler.multiobjective</a> &gt; <span class="el_source">MOResourceOptimizer.java</span></div><h1>MOResourceOptimizer.java</h1><pre class="source lang-java linenums">/*
+ *  Copyright 2002-2021 Barcelona Supercomputing Center (www.bsc.es)
+ *
+ *  Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ */
+package es.bsc.compss.scheduler.multiobjective;
+
+import es.bsc.compss.components.impl.ResourceScheduler;
+import es.bsc.compss.scheduler.multiobjective.config.MOConfiguration;
+import es.bsc.compss.scheduler.multiobjective.types.MOProfile;
+import es.bsc.compss.scheduler.multiobjective.types.MOScore;
+import es.bsc.compss.scheduler.types.Profile;
+import es.bsc.compss.scheduler.types.Score;
+import es.bsc.compss.scheduler.types.WorkloadState;
+import es.bsc.compss.types.CloudProvider;
+import es.bsc.compss.types.ResourceCreationRequest;
+import es.bsc.compss.types.implementations.Implementation;
+import es.bsc.compss.types.resources.CloudMethodWorker;
+import es.bsc.compss.types.resources.MethodResourceDescription;
+import es.bsc.compss.types.resources.Worker;
+import es.bsc.compss.types.resources.WorkerResourceDescription;
+import es.bsc.compss.types.resources.description.CloudImageDescription;
+import es.bsc.compss.types.resources.description.CloudInstanceTypeDescription;
+import es.bsc.compss.types.resources.description.CloudMethodResourceDescription;
+import es.bsc.compss.types.resources.updates.ResourceUpdate;
+import es.bsc.compss.util.CoreManager;
+import es.bsc.compss.util.ResourceManager;
+import es.bsc.compss.util.ResourceOptimizer;
+
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+
+import org.json.JSONException;
+import org.json.JSONObject;
+
+
+public class MOResourceOptimizer extends ResourceOptimizer {
+
+<span class="nc" id="L53">    private final long initialTimeStamp = System.currentTimeMillis();</span>
+<span class="nc" id="L54">    private StringBuilder log = new StringBuilder(</span>
+        &quot;-------------------------\n&quot; + &quot;    CHECK SCALABILITY    \n&quot; + &quot;-------------------------\n&quot;);
+
+
+    /**
+     * Creates a new MOResourceOptimizer instance.
+     * 
+     * @param ts Associated MOScheduler.
+     */
+    public MOResourceOptimizer(MOScheduler ts) {
+<span class="nc" id="L64">        super(ts);</span>
+<span class="nc" id="L65">    }</span>
+
+    @Override
+    protected CloudTypeProfile generateCloudTypeProfile(JSONObject citdJSON, JSONObject implsJSON) {
+<span class="nc" id="L69">        return new MOCloudTypeProfile(citdJSON, implsJSON);</span>
+    }
+
+    @Override
+    protected void applyPolicies(WorkloadState workload) {
+<span class="nc" id="L74">        double timeBoundary = MOConfiguration.getTimeBoundary();</span>
+<span class="nc" id="L75">        double energyBoundary = MOConfiguration.getEnergyBoundary();</span>
+<span class="nc" id="L76">        double costBoundary = MOConfiguration.getMonetaryBoundary();</span>
+<span class="nc" id="L77">        double powerBoundary = MOConfiguration.getPowerBoundary();</span>
+<span class="nc" id="L78">        double priceBoundary = MOConfiguration.getPriceBoundary();</span>
+
+<span class="nc" id="L80">        double[] elapsedTime = new double[1];</span>
+<span class="nc" id="L81">        double[] elapsedEnergy = new double[1];</span>
+<span class="nc" id="L82">        double[] elapsedCost = new double[1];</span>
+<span class="nc" id="L83">        double[] elapsedPower = new double[1];</span>
+<span class="nc" id="L84">        double[] elapsedPrice = new double[1];</span>
+
+<span class="nc" id="L86">        Collection&lt;ResourceScheduler&lt;? extends WorkerResourceDescription&gt;&gt; workers = this.ts.getWorkers();</span>
+<span class="nc" id="L87">        List&lt;ResourceCreationRequest&gt; creations = ResourceManager.getPendingCreationRequests();</span>
+<span class="nc" id="L88">        Resource&lt;?&gt;[] allResources = new Resource[workers.size() + creations.size()];</span>
+<span class="nc" id="L89">        int[] load = new int[workload.getCoreCount()];</span>
+
+<span class="nc" id="L91">        HashMap&lt;CloudInstanceTypeDescription, Integer&gt; pendingCreations = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L92">        HashMap&lt;CloudInstanceTypeDescription, Integer&gt; pendingReductions = new HashMap&lt;&gt;();</span>
+
+<span class="nc" id="L94">        final ConfigurationCost actualCost = getContext(allResources, load, workers, creations, pendingCreations,</span>
+            pendingReductions, elapsedTime, elapsedEnergy, elapsedCost, elapsedPower, elapsedPrice);
+
+<span class="nc" id="L97">        addToLog(</span>
+            &quot;Boundaries\n&quot; + &quot;\tTime: &quot; + timeBoundary + &quot;s\n&quot; + &quot;\tEnergy: &quot; + energyBoundary + &quot;Wh\n&quot; + &quot;\tCost: &quot;
+                + costBoundary + &quot;€\n&quot; + &quot;\tPower: &quot; + powerBoundary + &quot;W\n&quot; + &quot;\tPrice: &quot; + priceBoundary + &quot;€/h\n&quot;);
+
+<span class="nc" id="L101">        addToLog(&quot;Elapsed\n&quot; + &quot;\tTime: &quot; + elapsedTime[0] + &quot;s\n&quot; + &quot;\tEnergy: &quot; + elapsedEnergy[0] + &quot;Wh\n&quot;</span>
+            + &quot;\tCost: &quot; + elapsedCost[0] + &quot;€\n&quot; + &quot;\tPower: &quot; + elapsedPower[0] + &quot;W\n&quot; + &quot;\tPrice: &quot;
+            + elapsedPrice[0] + &quot;€/h\n&quot;);
+
+<span class="nc" id="L105">        double timeBudget = timeBoundary - elapsedTime[0];</span>
+<span class="nc" id="L106">        double energyBudget = energyBoundary - elapsedEnergy[0];</span>
+<span class="nc" id="L107">        double costBudget = costBoundary - elapsedCost[0];</span>
+<span class="nc" id="L108">        double powerBudget = powerBoundary - elapsedPower[0];</span>
+<span class="nc" id="L109">        double priceBudget = priceBoundary - elapsedPrice[0];</span>
+<span class="nc" id="L110">        addToLog(&quot;Budget\n&quot; + &quot;\tTime: &quot; + timeBudget + &quot;s\n&quot; + &quot;\tEnergy: &quot; + energyBudget + &quot;Wh - &quot;</span>
+            + (energyBudget * 3600) + &quot;J\n&quot; + &quot;\tCost: &quot; + costBudget + &quot;€\n&quot; + &quot;\tPower: &quot; + powerBudget + &quot;W\n&quot;
+            + &quot;\tPrice: &quot; + priceBudget + &quot;€/h\n&quot;);
+
+<span class="nc" id="L114">        addToLog(&quot;Current Resources\n&quot;);</span>
+<span class="nc" id="L115">        addToLog(&quot;Workload Info:\n&quot;);</span>
+<span class="nc bnc" id="L116" title="All 2 branches missed.">        for (int coreId = 0; coreId &lt; workload.getCoreCount(); coreId++) {</span>
+<span class="nc" id="L117">            addToLog(&quot;\tCore &quot; + coreId + &quot;: &quot; + load[coreId] + &quot;\n&quot;);</span>
+        }
+
+<span class="nc" id="L120">        Action actualAction = new Action(actualCost);</span>
+<span class="nc" id="L121">        addToLog(&quot;Actual Cost:\n&quot;);</span>
+<span class="nc" id="L122">        addToLog(actualAction.toString());</span>
+
+<span class="nc" id="L124">        ConfigurationCost simCost = simulate(load, allResources, 0, 0, 0);</span>
+<span class="nc" id="L125">        addToLog(&quot;Actual Simulated:\n&quot;);</span>
+<span class="nc" id="L126">        Action currentSim = new Action(simCost);</span>
+<span class="nc" id="L127">        addToLog(currentSim.toString());</span>
+
+<span class="nc" id="L129">        LinkedList&lt;Action&gt; actions = generatePossibleActions(allResources, load);</span>
+<span class="nc" id="L130">        Action action =</span>
+<span class="nc" id="L131">            this.selectBestAction(currentSim, actions, timeBudget, energyBudget, costBudget, powerBudget, priceBudget);</span>
+<span class="nc" id="L132">        addToLog(&quot;Action to perform: &quot; + action.title + &quot;\n&quot;);</span>
+<span class="nc" id="L133">        printLog();</span>
+<span class="nc" id="L134">        action.perform();</span>
+<span class="nc" id="L135">    }</span>
+
+    private LinkedList&lt;Action&gt; generatePossibleActions(Resource&lt;?&gt;[] allResources, int[] load) {
+<span class="nc" id="L138">        LinkedList&lt;Action&gt; actions = new LinkedList&lt;&gt;();</span>
+
+        // Generate all possible resource acquisitions
+<span class="nc bnc" id="L141" title="All 2 branches missed.">        if (ResourceManager.getCurrentVMCount() &lt; ResourceManager.getMaxCloudVMs()) {</span>
+<span class="nc" id="L142">            generatePossibleResourceAcquisitions(actions, allResources, load);</span>
+        }
+
+        // Generate all possible resource releases
+<span class="nc bnc" id="L146" title="All 2 branches missed.">        if (ResourceManager.getCurrentVMCount() &gt; ResourceManager.getMinCloudVMs()) {</span>
+<span class="nc" id="L147">            generatePossibleResourceReleases(actions, allResources, load);</span>
+        }
+<span class="nc" id="L149">        return actions;</span>
+    }
+
+    private void generatePossibleResourceAcquisitions(LinkedList&lt;Action&gt; actions, Resource&lt;?&gt;[] allResources,
+        int[] load) {
+<span class="nc bnc" id="L154" title="All 2 branches missed.">        for (CloudProvider cp : ResourceManager.getAvailableCloudProviders()) {</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">            if (!cp.canHostMoreInstances()) {</span>
+<span class="nc" id="L156">                continue;</span>
+            }
+<span class="nc bnc" id="L158" title="All 2 branches missed.">            for (CloudInstanceTypeDescription citd : cp.getAllTypes()) {</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">                for (CloudImageDescription cid : cp.getAllImages()) {</span>
+<span class="nc" id="L160">                    Resource&lt;?&gt;[] resources = new Resource[allResources.length + 1];</span>
+<span class="nc" id="L161">                    System.arraycopy(allResources, 0, resources, 0, allResources.length);</span>
+<span class="nc" id="L162">                    resources[allResources.length] = createResourceForComponent(citd, cid);</span>
+<span class="nc" id="L163">                    ConfigurationCost cc = simulate(load, resources, 0, 0, 0);</span>
+<span class="nc" id="L164">                    Action a = new ActionAdd(cp, citd, cid, cc);</span>
+<span class="nc" id="L165">                    addToLog(a.toString());</span>
+<span class="nc" id="L166">                    actions.add(a);</span>
+<span class="nc" id="L167">                }</span>
+<span class="nc" id="L168">            }</span>
+
+<span class="nc" id="L170">        }</span>
+<span class="nc" id="L171">    }</span>
+
+    private void generatePossibleResourceReleases(LinkedList&lt;Action&gt; actions, Resource&lt;?&gt;[] allResources, int[] load) {
+<span class="nc bnc" id="L174" title="All 2 branches missed.">        for (int i = 0; i &lt; allResources.length; i++) {</span>
+<span class="nc" id="L175">            Resource&lt;?&gt; excludedWorker = allResources[i];</span>
+<span class="nc" id="L176">            Worker&lt;?&gt; w = excludedWorker.getResource();</span>
+            // If worker is null, worker is being created. It cannot be destroyed yet.
+<span class="nc bnc" id="L178" title="All 4 branches missed.">            if (w == null || !(w.getDescription() instanceof CloudMethodResourceDescription)) {</span>
+<span class="nc" id="L179">                continue;</span>
+            }
+<span class="nc" id="L181">            CloudMethodResourceDescription description = (CloudMethodResourceDescription) w.getDescription();</span>
+<span class="nc bnc" id="L182" title="All 2 branches missed.">            if (!(excludedWorker.hasPendingModifications())) {</span>
+<span class="nc" id="L183">                CloudImageDescription image = description.getImage();</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">                for (CloudInstanceTypeDescription typeReduction : description.getPossibleReductions()) {</span>
+<span class="nc" id="L185">                    CloudMethodResourceDescription reductionDescription =</span>
+                        new CloudMethodResourceDescription(typeReduction, image);
+<span class="nc" id="L187">                    CloudMethodResourceDescription reducedDescription = new CloudMethodResourceDescription(description);</span>
+<span class="nc" id="L188">                    reducedDescription.reduce(reductionDescription);</span>
+                    ConfigurationCost cc;
+<span class="nc bnc" id="L190" title="All 2 branches missed.">                    if (reducedDescription.getTypeComposition().isEmpty()) {</span>
+<span class="nc" id="L191">                        Resource&lt;?&gt;[] resources = new Resource[allResources.length - 1];</span>
+<span class="nc" id="L192">                        System.arraycopy(allResources, 0, resources, 0, i);</span>
+<span class="nc" id="L193">                        System.arraycopy(allResources, i + 1, resources, i, resources.length - i);</span>
+<span class="nc" id="L194">                        long time = excludedWorker.startTime;</span>
+<span class="nc" id="L195">                        double energy = excludedWorker.idlePower * time + excludedWorker.startEnergy;</span>
+<span class="nc" id="L196">                        double cost = excludedWorker.startCost;</span>
+<span class="nc" id="L197">                        cc = simulate(load, resources, time, energy, cost);</span>
+<span class="nc" id="L198">                    } else {</span>
+<span class="nc" id="L199">                        allResources[i] = reduceResourceForComponent(excludedWorker, reducedDescription);</span>
+<span class="nc" id="L200">                        long time = excludedWorker.startTime;</span>
+<span class="nc" id="L201">                        double energy = excludedWorker.idlePower * time + excludedWorker.startEnergy;</span>
+<span class="nc" id="L202">                        double cost = excludedWorker.startCost;</span>
+<span class="nc" id="L203">                        cc = simulate(load, allResources, time, energy, cost);</span>
+<span class="nc" id="L204">                        allResources[i] = excludedWorker;</span>
+                    }
+<span class="nc" id="L206">                    Action a = new ActionRemove(excludedWorker, typeReduction, cc);</span>
+<span class="nc" id="L207">                    addToLog(a.toString());</span>
+<span class="nc" id="L208">                    actions.add(a);</span>
+<span class="nc" id="L209">                }</span>
+            }
+        }
+<span class="nc" id="L212">    }</span>
+
+    private Action selectBestAction(Action currentAction, LinkedList&lt;Action&gt; candidates, double timeBudget,
+        double energyBudget, double costBudget, double powerBudget, double priceBudget) {
+
+<span class="nc" id="L217">        addToLog(&quot;SELECTING BEST ACTION ACCORDING TO &quot; + MOConfiguration.getSchedulerOptimization() + &quot;\n&quot;);</span>
+<span class="nc" id="L218">        Action bestAction = currentAction;</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">        for (Action action : candidates) {</span>
+
+<span class="nc" id="L221">            boolean improves = false;</span>
+<span class="nc bnc" id="L222" title="All 4 branches missed.">            if (action.cost.power &gt; powerBudget || action.cost.price &gt; priceBudget) {</span>
+<span class="nc" id="L223">                addToLog(&quot;\t\t Surpasses the power (&quot; + action.cost.power + &quot;&gt;&quot; + powerBudget + &quot;) or price budget (&quot;</span>
+<span class="nc" id="L224">                    + action.cost.price + &quot;&gt;&quot; + priceBudget + &quot;)&quot;);</span>
+            } else {
+<span class="nc" id="L226">                addToLog(&quot;\tChecking &quot; + action.title + &quot;\n&quot;);</span>
+<span class="nc bnc" id="L227" title="All 4 branches missed.">                switch (MOConfiguration.getSchedulerOptimization()) {</span>
+                    case TIME:
+<span class="nc" id="L229">                        improves = doesImproveTime(action, bestAction, energyBudget, costBudget);</span>
+<span class="nc" id="L230">                        break;</span>
+                    case COST:
+<span class="nc" id="L232">                        improves = doesImproveCost(action, bestAction, energyBudget, timeBudget);</span>
+<span class="nc" id="L233">                        break;</span>
+                    case ENERGY:
+<span class="nc" id="L235">                        improves = doesImproveEnergy(action, bestAction, timeBudget, costBudget);</span>
+<span class="nc" id="L236">                        break;</span>
+                    default:
+                        // UNKNOWN: DO NOTHING!!!
+                }
+            }
+<span class="nc bnc" id="L241" title="All 2 branches missed.">            if (improves) {</span>
+<span class="nc" id="L242">                addToLog(&quot;\t\t&quot; + action.title + &quot; becomes the preferred option\n&quot;);</span>
+<span class="nc" id="L243">                bestAction = action;</span>
+            } else {
+<span class="nc" id="L245">                addToLog(&quot;\t\t&quot; + action.title + &quot; does not improve &quot; + bestAction.title + &quot;\n&quot;);</span>
+            }
+<span class="nc" id="L247">        }</span>
+<span class="nc" id="L248">        return bestAction;</span>
+    }
+
+    private static &lt;T extends Comparable&lt;T&gt;&gt; boolean isAcceptable(T candidate, T reference, T budget) {
+<span class="nc bnc" id="L252" title="All 2 branches missed.">        if (reference.compareTo(budget) &gt; 0) {</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">            return candidate.compareTo(reference) &lt;= 0;</span>
+        } else {
+<span class="nc bnc" id="L255" title="All 2 branches missed.">            return candidate.compareTo(budget) &lt;= 0;</span>
+        }
+    }
+
+    private boolean doesImproveTime(Action candidate, Action reference, double energyBudget, double costBudget) {
+<span class="nc" id="L260">        ConfigurationCost cCost = candidate.cost;</span>
+<span class="nc" id="L261">        ConfigurationCost rCost = reference.cost;</span>
+<span class="nc bnc" id="L262" title="All 2 branches missed.">        if (cCost.time &lt; rCost.time) {</span>
+<span class="nc bnc" id="L263" title="All 2 branches missed.">            if (!isAcceptable(cCost.energy, rCost.energy, energyBudget)) {</span>
+<span class="nc" id="L264">                addToLog(&quot;\t\t Surpasses the energy budget\n&quot;);</span>
+            }
+<span class="nc bnc" id="L266" title="All 2 branches missed.">            if (!isAcceptable(cCost.cost, rCost.cost, costBudget)) {</span>
+<span class="nc" id="L267">                addToLog(&quot;\t\t Surpasses the cost budget\n&quot;);</span>
+            }
+<span class="nc bnc" id="L269" title="All 2 branches missed.">            return isAcceptable(cCost.energy, rCost.energy, energyBudget)</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">                &amp;&amp; isAcceptable(cCost.cost, rCost.cost, costBudget);</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">        } else if (cCost.time == rCost.time) {</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">            if (cCost.energy &lt; rCost.energy) {</span>
+<span class="nc" id="L273">                return isAcceptable(cCost.cost, rCost.cost, costBudget);</span>
+<span class="nc bnc" id="L274" title="All 2 branches missed.">            } else if (cCost.energy == rCost.energy) {</span>
+<span class="nc bnc" id="L275" title="All 2 branches missed.">                return cCost.cost &lt; rCost.cost;</span>
+            } else {
+<span class="nc" id="L277">                addToLog(&quot;\t\t Energy's higher than the currently selected option\n&quot;);</span>
+            }
+        } else {
+<span class="nc bnc" id="L280" title="All 4 branches missed.">            if (rCost.energy &gt; energyBudget &amp;&amp; cCost.energy &lt; rCost.energy) {</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">                if (isAcceptable(cCost.cost, rCost.cost, costBudget)) {</span>
+<span class="nc" id="L282">                    addToLog(&quot;\t\t Time's higher than the currently selected option.&quot;</span>
+                        + &quot; But energy is closer to the boundary\n&quot;);
+                }
+<span class="nc" id="L285">                return isAcceptable(cCost.cost, rCost.cost, costBudget);</span>
+            }
+
+<span class="nc bnc" id="L288" title="All 4 branches missed.">            if (rCost.cost &gt; costBudget &amp;&amp; cCost.cost &lt; rCost.cost) {</span>
+<span class="nc bnc" id="L289" title="All 2 branches missed.">                if (isAcceptable(cCost.energy, rCost.energy, costBudget)) {</span>
+<span class="nc" id="L290">                    addToLog(&quot;\t\t Time's higher than the currently selected option.&quot;</span>
+                        + &quot; But cost is closer to the boundary\n&quot;);
+                }
+<span class="nc" id="L293">                return isAcceptable(cCost.energy, rCost.energy, costBudget);</span>
+            }
+<span class="nc" id="L295">            addToLog(&quot;\t\t Time's higher than the currently selected option\n&quot;);</span>
+
+        }
+<span class="nc" id="L298">        return false;</span>
+    }
+
+    private boolean doesImproveCost(Action candidate, Action reference, double energyBudget, double timeBudget) {
+<span class="nc" id="L302">        ConfigurationCost cCost = candidate.cost;</span>
+<span class="nc" id="L303">        ConfigurationCost rCost = reference.cost;</span>
+<span class="nc bnc" id="L304" title="All 2 branches missed.">        if (cCost.cost &lt; rCost.cost) {</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">            if (!isAcceptable(cCost.energy, rCost.energy, energyBudget)) {</span>
+<span class="nc" id="L306">                addToLog(&quot;\t\t Surpasses the energy budget &quot; + cCost.energy + &quot; &gt; &quot; + energyBudget + &quot;\n&quot;);</span>
+            }
+<span class="nc bnc" id="L308" title="All 2 branches missed.">            if (!isAcceptable(cCost.time, rCost.time, timeBudget)) {</span>
+<span class="nc" id="L309">                addToLog(&quot;\t\t Surpasses the time budget &quot; + cCost.time + &quot; &gt; &quot; + timeBudget + &quot;\n&quot;);</span>
+            }
+<span class="nc bnc" id="L311" title="All 2 branches missed.">            return isAcceptable(cCost.energy, rCost.energy, energyBudget)</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">                &amp;&amp; isAcceptable(cCost.time, rCost.time, timeBudget);</span>
+<span class="nc bnc" id="L313" title="All 2 branches missed.">        } else if (cCost.cost == rCost.cost) {</span>
+<span class="nc bnc" id="L314" title="All 2 branches missed.">            if (cCost.time &lt; rCost.time) {</span>
+<span class="nc" id="L315">                return isAcceptable(cCost.energy, rCost.energy, energyBudget);</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">            } else if (cCost.time == rCost.time) {</span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">                return cCost.energy &lt; rCost.energy;</span>
+            } else {
+<span class="nc" id="L319">                addToLog(&quot;\t\t Time's higher than the currently selected option\n&quot;);</span>
+            }
+        } else {
+<span class="nc bnc" id="L322" title="All 4 branches missed.">            if (rCost.time &gt; timeBudget &amp;&amp; cCost.time &lt; rCost.time) {</span>
+<span class="nc bnc" id="L323" title="All 2 branches missed.">                if (isAcceptable(cCost.energy, rCost.energy, energyBudget)) {</span>
+<span class="nc" id="L324">                    addToLog(&quot;\t\t Cost's higher than the currently selected option.&quot;</span>
+                        + &quot; But time is closer to the boundary\n&quot;);
+                }
+<span class="nc" id="L327">                return isAcceptable(cCost.cost, rCost.cost, energyBudget);</span>
+            }
+<span class="nc bnc" id="L329" title="All 4 branches missed.">            if (rCost.energy &gt; energyBudget &amp;&amp; cCost.energy &lt; rCost.energy) {</span>
+<span class="nc bnc" id="L330" title="All 2 branches missed.">                if (isAcceptable(cCost.time, rCost.time, timeBudget)) {</span>
+<span class="nc" id="L331">                    addToLog(&quot;\t\t Energy's higher than the currently selected option.&quot;</span>
+                        + &quot; But energy is closer to the boundary\n&quot;);
+                }
+<span class="nc" id="L334">                return isAcceptable(cCost.time, rCost.time, timeBudget);</span>
+            }
+<span class="nc" id="L336">            addToLog(&quot;\t\t Cost's higher than the currently selected option\n&quot;);</span>
+        }
+<span class="nc" id="L338">        return false;</span>
+    }
+
+    private boolean doesImproveEnergy(Action candidate, Action reference, double timeBudget, double costBudget) {
+<span class="nc" id="L342">        ConfigurationCost cCost = candidate.cost;</span>
+<span class="nc" id="L343">        ConfigurationCost rCost = reference.cost;</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">        if (cCost.energy &lt; rCost.energy) {</span>
+<span class="nc bnc" id="L345" title="All 2 branches missed.">            if (!isAcceptable(cCost.time, rCost.time, timeBudget)) {</span>
+<span class="nc" id="L346">                addToLog(&quot;\t\t Surpasses the time budget\n&quot;);</span>
+            }
+<span class="nc bnc" id="L348" title="All 2 branches missed.">            if (!isAcceptable(cCost.cost, rCost.cost, costBudget)) {</span>
+<span class="nc" id="L349">                addToLog(&quot;\t\t Surpasses the cost budget\n&quot;);</span>
+            }
+<span class="nc bnc" id="L351" title="All 4 branches missed.">            return isAcceptable(cCost.time, rCost.time, timeBudget) &amp;&amp; isAcceptable(cCost.cost, rCost.cost, costBudget);</span>
+<span class="nc bnc" id="L352" title="All 2 branches missed.">        } else if (cCost.energy == rCost.energy) {</span>
+<span class="nc bnc" id="L353" title="All 2 branches missed.">            if (cCost.time &lt; rCost.time) {</span>
+<span class="nc" id="L354">                return isAcceptable(cCost.cost, rCost.cost, costBudget);</span>
+<span class="nc bnc" id="L355" title="All 2 branches missed.">            } else if (cCost.time == rCost.time) {</span>
+<span class="nc bnc" id="L356" title="All 2 branches missed.">                return cCost.cost &lt; rCost.cost;</span>
+            } else {
+<span class="nc" id="L358">                addToLog(&quot;\t\t Time's higher than the currently selected option\n&quot;);</span>
+            }
+        } else {
+<span class="nc bnc" id="L361" title="All 4 branches missed.">            if (rCost.time &gt; timeBudget &amp;&amp; cCost.time &lt; rCost.time) {</span>
+<span class="nc bnc" id="L362" title="All 2 branches missed.">                if (isAcceptable(cCost.cost, rCost.cost, costBudget)) {</span>
+<span class="nc" id="L363">                    addToLog(&quot;\t\t Energy's higher than the currently selected option.&quot;</span>
+                        + &quot; But time is closer to the boundary\n&quot;);
+                }
+<span class="nc" id="L366">                return isAcceptable(cCost.cost, rCost.cost, costBudget);</span>
+            }
+<span class="nc bnc" id="L368" title="All 4 branches missed.">            if (rCost.cost &gt; costBudget &amp;&amp; cCost.cost &lt; rCost.cost) {</span>
+<span class="nc bnc" id="L369" title="All 2 branches missed.">                if (isAcceptable(cCost.time, rCost.time, timeBudget)) {</span>
+<span class="nc" id="L370">                    addToLog(&quot;\t\t Energy's higher than the currently selected option.&quot;</span>
+                        + &quot; But time is closer to the boundary\n&quot;);
+                }
+<span class="nc" id="L373">                return isAcceptable(cCost.time, rCost.time, timeBudget);</span>
+            }
+<span class="nc" id="L375">            addToLog(&quot;\t\t Energy's higher than the currently selected option.\n&quot;);</span>
+        }
+<span class="nc" id="L377">        return false;</span>
+    }
+
+    // Get estimated cost (energy, price, time) of the current scheduling
+    private &lt;T extends WorkerResourceDescription&gt; ConfigurationCost getContext(Resource&lt;?&gt;[] allResources, int[] load,
+        Collection&lt;ResourceScheduler&lt;? extends WorkerResourceDescription&gt;&gt; workers,
+        List&lt;ResourceCreationRequest&gt; creations, HashMap&lt;CloudInstanceTypeDescription, Integer&gt; pendingCreations,
+        HashMap&lt;CloudInstanceTypeDescription, Integer&gt; pendingDestructions, double[] elapsedTime,
+        double[] elapsedEnergy, double[] elapsedCost, double[] elapsedPower, double[] elapsedPrice) {
+
+<span class="nc" id="L387">        elapsedTime[0] = 0;</span>
+<span class="nc" id="L388">        elapsedEnergy[0] = 0;</span>
+<span class="nc" id="L389">        elapsedCost[0] = 0;</span>
+<span class="nc" id="L390">        elapsedPower[0] = 0;</span>
+<span class="nc" id="L391">        elapsedPrice[0] = 0;</span>
+
+<span class="nc" id="L393">        double time = 0;</span>
+<span class="nc" id="L394">        double actionsCost = 0;</span>
+<span class="nc" id="L395">        double idlePrice = 0;</span>
+<span class="nc" id="L396">        double actionsEnergy = 0;</span>
+<span class="nc" id="L397">        double idlePower = 0;</span>
+<span class="nc" id="L398">        int resourceId = 0;</span>
+<span class="nc bnc" id="L399" title="All 2 branches missed.">        for (ResourceScheduler&lt;?&gt; w : workers) {</span>
+            @SuppressWarnings(&quot;unchecked&quot;)
+<span class="nc" id="L401">            MOResourceScheduler&lt;T&gt; aw = (MOResourceScheduler&lt;T&gt;) w;</span>
+<span class="nc" id="L402">            Resource&lt;T&gt; r = new Resource&lt;&gt;(aw);</span>
+<span class="nc" id="L403">            allResources[resourceId] = r;</span>
+
+<span class="nc bnc" id="L405" title="All 2 branches missed.">            addToLog(&quot;\tName:&quot; + aw.getName() + (r.hasPendingModifications() ? &quot; (IS TO BE DELETED)&quot; : &quot;&quot;) + &quot;\n&quot;);</span>
+
+<span class="nc" id="L407">            time = Math.max(time, aw.getLastGapExpectedStart());</span>
+<span class="nc" id="L408">            addToLog(&quot;\t\tTime:&quot; + aw.getLastGapExpectedStart() + &quot; ms -&gt; total &quot; + time + &quot;\n&quot;);</span>
+
+<span class="nc" id="L410">            elapsedCost[0] += aw.getRunActionsCost();</span>
+<span class="nc" id="L411">            addToLog(&quot;\t\tExecuted Actions Cost:&quot; + aw.getRunActionsCost() + &quot; €.ms/h -&gt; total &quot; + elapsedCost[0]</span>
+                + &quot;€.ms/h\n&quot;);
+
+<span class="nc" id="L414">            actionsCost += aw.getScheduledActionsCost();</span>
+<span class="nc" id="L415">            addToLog(&quot;\t\tScheduled Actions Cost:&quot; + aw.getScheduledActionsCost() + &quot; €.ms/h -&gt; total &quot; + actionsCost</span>
+                + &quot;€.ms/h\n&quot;);
+
+<span class="nc" id="L418">            r.idlePrice = aw.getIdlePrice();</span>
+<span class="nc" id="L419">            idlePrice += r.idlePrice;</span>
+<span class="nc" id="L420">            addToLog(&quot;\t\tIdle Price:&quot; + r.idlePrice + &quot; €/h -&gt; total &quot; + idlePrice + &quot;€/h\n&quot;);</span>
+
+<span class="nc" id="L422">            elapsedEnergy[0] += aw.getRunActionsEnergy();</span>
+<span class="nc" id="L423">            addToLog(&quot;\t\tExecuted Actions Energy:&quot; + aw.getRunActionsEnergy() + &quot; mJ -&gt; total &quot; + elapsedEnergy[0]</span>
+                + &quot;mJ\n&quot;);
+
+<span class="nc" id="L426">            actionsEnergy += aw.getScheduledActionsEnergy();</span>
+<span class="nc" id="L427">            addToLog(&quot;\t\tScheduled Actions Energy:&quot; + aw.getScheduledActionsEnergy() + &quot; mJ -&gt; total &quot; + actionsEnergy</span>
+                + &quot;mJ\n&quot;);
+
+<span class="nc" id="L430">            r.idlePower = aw.getIdlePower();</span>
+<span class="nc" id="L431">            idlePower += r.idlePower;</span>
+<span class="nc" id="L432">            addToLog(&quot;\t\tIdle Power:&quot; + r.idlePower + &quot; W -&gt; total &quot; + idlePower + &quot;W\n&quot;);</span>
+
+<span class="nc" id="L434">            r.startTime = aw.getExpectedEndTimeRunning();</span>
+<span class="nc" id="L435">            r.startCost = aw.getRunningActionsCost();</span>
+<span class="nc" id="L436">            r.startEnergy = aw.getRunningActionsEnergy();</span>
+
+<span class="nc" id="L438">            int[][] implsCount = aw.getImplementationCounts();</span>
+<span class="nc" id="L439">            int[][] runningCounts = aw.getRunningImplementationCounts();</span>
+<span class="nc" id="L440">            addToLog(&quot;\t\tCore Information:\n&quot;);</span>
+<span class="nc" id="L441">            StringBuilder[] coreInfo = new StringBuilder[CoreManager.getCoreCount()];</span>
+<span class="nc" id="L442">            Implementation[] impls = new Implementation[CoreManager.getCoreCount()];</span>
+<span class="nc bnc" id="L443" title="All 2 branches missed.">            for (int coreId = 0; coreId &lt; CoreManager.getCoreCount(); coreId++) {</span>
+<span class="nc" id="L444">                coreInfo[coreId] = new StringBuilder(&quot;\t\t\tCore &quot; + coreId + &quot;\n&quot;);</span>
+<span class="nc" id="L445">                int favId = 0;</span>
+<span class="nc" id="L446">                int favCount = implsCount[coreId][0];</span>
+<span class="nc" id="L447">                load[coreId] += implsCount[coreId][0] - runningCounts[coreId][0];</span>
+<span class="nc" id="L448">                coreInfo[coreId].append(&quot;\t\t\t\tImplementation 0: &quot; + implsCount[coreId][0] + &quot;, &quot;</span>
+                    + runningCounts[coreId][0] + &quot; of'em already running\n&quot;);
+<span class="nc bnc" id="L450" title="All 2 branches missed.">                for (int implId = 1; implId &lt; CoreManager.getCoreImplementations(coreId).size(); implId++) {</span>
+<span class="nc" id="L451">                    coreInfo[coreId].append(&quot;\t\t\t\tImplementation &quot; + implId + &quot;: &quot; + implsCount[coreId][implId]</span>
+                        + &quot;, &quot; + runningCounts[coreId][implId] + &quot; of'em already running\n&quot;);
+<span class="nc" id="L453">                    load[coreId] += implsCount[coreId][implId] - runningCounts[coreId][implId];</span>
+<span class="nc bnc" id="L454" title="All 2 branches missed.">                    if (implsCount[coreId][implId] &gt; favCount) {</span>
+<span class="nc" id="L455">                        favId = implId;</span>
+                    }
+                }
+<span class="nc bnc" id="L458" title="All 2 branches missed.">                if (favCount &gt; 0) {</span>
+<span class="nc" id="L459">                    impls[coreId] = CoreManager.getCoreImplementations(coreId).get(favId);</span>
+                } else {
+<span class="nc" id="L461">                    List&lt;Implementation&gt; coreImpls = CoreManager.getCoreImplementations(coreId);</span>
+<span class="nc" id="L462">                    MOProfile[] profiles = new MOProfile[coreImpls.size()];</span>
+<span class="nc bnc" id="L463" title="All 2 branches missed.">                    for (int i = 0; i &lt; profiles.length; i++) {</span>
+<span class="nc" id="L464">                        profiles[i] = (MOProfile) aw.getProfile(coreImpls.get(i));</span>
+                    }
+<span class="nc" id="L466">                    impls[coreId] = getBestImplementation(coreImpls, profiles);</span>
+                }
+<span class="nc" id="L468">                coreInfo[coreId].append(&quot;\t\t\t\tFavorite Implementation &quot; + favId + &quot;\n&quot;);</span>
+            }
+
+<span class="nc" id="L471">            r.profiles = new MOProfile[implsCount.length];</span>
+<span class="nc" id="L472">            r.capacity = new int[implsCount.length];</span>
+<span class="nc bnc" id="L473" title="All 2 branches missed.">            for (int coreId = 0; coreId &lt; implsCount.length; coreId++) {</span>
+<span class="nc" id="L474">                r.profiles[coreId] = (MOProfile) aw.getProfile(impls[coreId]);</span>
+<span class="nc" id="L475">                coreInfo[coreId].append(&quot;\t\t\t\tProfile &quot; + r.profiles[coreId] + &quot;\n&quot;);</span>
+<span class="nc" id="L476">                r.capacity[coreId] = aw.getSimultaneousCapacity(impls[coreId]);</span>
+<span class="nc" id="L477">                coreInfo[coreId].append(&quot;\t\t\t\tCapacity &quot; + r.capacity[coreId] + &quot;\n&quot;);</span>
+<span class="nc" id="L478">                addToLog(coreInfo[coreId].toString());</span>
+            }
+
+<span class="nc bnc" id="L481" title="All 2 branches missed.">            if (r.hasPendingModifications()) {</span>
+<span class="nc bnc" id="L482" title="All 2 branches missed.">                for (ResourceUpdate&lt;T&gt; ru : r.getPendingModifications()) {</span>
+<span class="nc" id="L483">                    Map&lt;CloudInstanceTypeDescription, int[]&gt; modificationComposition =</span>
+<span class="nc" id="L484">                        ((CloudMethodResourceDescription) ru.getModification()).getTypeComposition();</span>
+<span class="nc bnc" id="L485" title="All 2 branches missed.">                    for (Map.Entry&lt;CloudInstanceTypeDescription, int[]&gt; entry : modificationComposition.entrySet()) {</span>
+<span class="nc" id="L486">                        CloudInstanceTypeDescription componentType = entry.getKey();</span>
+<span class="nc" id="L487">                        int count = entry.getValue()[0];</span>
+<span class="nc" id="L488">                        Integer pendingDestruction = pendingDestructions.get(componentType);</span>
+<span class="nc bnc" id="L489" title="All 2 branches missed.">                        if (pendingDestruction == null) {</span>
+<span class="nc" id="L490">                            pendingDestruction = 0;</span>
+                        }
+<span class="nc" id="L492">                        pendingDestruction += count;</span>
+<span class="nc" id="L493">                        pendingDestructions.put(componentType, pendingDestruction);</span>
+<span class="nc" id="L494">                    }</span>
+<span class="nc" id="L495">                }</span>
+            }
+<span class="nc" id="L497">            resourceId++;</span>
+<span class="nc" id="L498">        }</span>
+        // Convert time to secs
+<span class="nc" id="L500">        elapsedTime[0] = (double) (System.currentTimeMillis() - initialTimeStamp) / 1000;</span>
+        // Convert energy from mJ to Wh
+<span class="nc" id="L502">        elapsedEnergy[0] = elapsedEnergy[0] / 3_600_000;</span>
+        // Convert energy from €ms/h to €
+<span class="nc" id="L504">        elapsedCost[0] = elapsedCost[0] / 3_600_000;</span>
+<span class="nc bnc" id="L505" title="All 2 branches missed.">        for (ResourceCreationRequest rcr : creations) {</span>
+<span class="nc bnc" id="L506" title="All 2 branches missed.">            for (Map.Entry&lt;CloudInstanceTypeDescription, int[]&gt; entry : rcr.getRequested().getTypeComposition()</span>
+<span class="nc" id="L507">                .entrySet()) {</span>
+<span class="nc" id="L508">                CloudInstanceTypeDescription componentType = entry.getKey();</span>
+<span class="nc" id="L509">                int count = entry.getValue()[0];</span>
+<span class="nc" id="L510">                addToLog(&quot;\tName: REQUESTED &quot; + componentType.getName() + &quot;\n&quot;);</span>
+
+<span class="nc" id="L512">                Integer pendingCreation = pendingCreations.get(componentType);</span>
+<span class="nc bnc" id="L513" title="All 2 branches missed.">                if (pendingCreation == null) {</span>
+<span class="nc" id="L514">                    pendingCreation = 0;</span>
+                }
+<span class="nc" id="L516">                pendingCreation += count;</span>
+<span class="nc" id="L517">                pendingCreations.put(componentType, pendingCreation);</span>
+<span class="nc" id="L518">            }</span>
+
+<span class="nc" id="L520">            Resource&lt;?&gt; r = createResourceForCreationRequest(rcr);</span>
+<span class="nc" id="L521">            allResources[resourceId] = r;</span>
+
+<span class="nc" id="L523">            addToLog(&quot;\t\tTime: 0 ms -&gt; total &quot; + time + &quot;\n&quot;);</span>
+<span class="nc" id="L524">            addToLog(&quot;\t\tactions Cost: 0 € -&gt; total &quot; + actionsCost + &quot;€\n&quot;);</span>
+<span class="nc" id="L525">            idlePrice += r.idlePrice;</span>
+<span class="nc" id="L526">            addToLog(&quot;\t\tIdle Price:&quot; + r.idlePrice + &quot; € -&gt; total &quot; + idlePrice + &quot;€\n&quot;);</span>
+<span class="nc" id="L527">            addToLog(&quot;\t\tactions Energy:0 mJ -&gt; total &quot; + actionsEnergy + &quot;mJ\n&quot;);</span>
+<span class="nc" id="L528">            idlePower += r.idlePower;</span>
+<span class="nc" id="L529">            addToLog(&quot;\t\tIdle Power:&quot; + r.idlePower + &quot; W -&gt; total &quot; + idlePower + &quot;W\n&quot;);</span>
+
+            // r.startTime = 0;
+<span class="nc" id="L532">            r.startCost = 0;</span>
+<span class="nc" id="L533">            r.startEnergy = 0;</span>
+
+<span class="nc" id="L535">            addToLog(&quot;\t\tCore Information:\n&quot;);</span>
+<span class="nc" id="L536">            StringBuilder[] coreInfo = new StringBuilder[CoreManager.getCoreCount()];</span>
+<span class="nc bnc" id="L537" title="All 2 branches missed.">            for (int coreId = 0; coreId &lt; CoreManager.getCoreCount(); coreId++) {</span>
+<span class="nc" id="L538">                coreInfo[coreId] = new StringBuilder(&quot;\t\t\tCore &quot; + coreId + &quot;\n&quot;);</span>
+<span class="nc" id="L539">                load[coreId] += 0;</span>
+<span class="nc" id="L540">                coreInfo[coreId].append(&quot;\t\t\t\tImplementation 0: 0, 0 of'em already running\n&quot;);</span>
+<span class="nc bnc" id="L541" title="All 2 branches missed.">                for (int implId = 1; implId &lt; CoreManager.getCoreImplementations(coreId).size(); implId++) {</span>
+<span class="nc" id="L542">                    coreInfo[coreId].append(&quot;\t\t\t\tImplementation &quot; + implId + &quot;: 0, 0 of'em already running\n&quot;);</span>
+                }
+<span class="nc" id="L544">                coreInfo[coreId].append(&quot;\t\t\t\tFavorite Implementation 0\n&quot;);</span>
+            }
+
+<span class="nc bnc" id="L547" title="All 2 branches missed.">            for (int coreId = 0; coreId &lt; CoreManager.getCoreCount(); coreId++) {</span>
+<span class="nc" id="L548">                coreInfo[coreId].append(&quot;\t\t\t\tProfile &quot; + r.profiles[coreId] + &quot;\n&quot;);</span>
+<span class="nc" id="L549">                coreInfo[coreId].append(&quot;\t\t\t\tCapacity &quot; + r.capacity[coreId] + &quot;\n&quot;);</span>
+<span class="nc" id="L550">                addToLog(coreInfo[coreId].toString());</span>
+            }
+
+<span class="nc" id="L553">            resourceId++;</span>
+<span class="nc" id="L554">        }</span>
+
+<span class="nc" id="L556">        return new ConfigurationCost(time, idlePower, actionsEnergy, idlePrice, actionsCost);</span>
+    }
+
+    private ConfigurationCost simulate(int[] counts, Resource&lt;?&gt;[] resources, long minTime, double minEnergy,
+        double minCost) {
+        // addToLog(&quot;Simulation\n&quot;);
+<span class="nc" id="L562">        int[] workingCounts = new int[counts.length];</span>
+<span class="nc" id="L563">        System.arraycopy(counts, 0, workingCounts, 0, counts.length);</span>
+<span class="nc" id="L564">        LinkedList&lt;Resource&lt;?&gt;&gt; executable = new LinkedList&lt;&gt;();</span>
+<span class="nc bnc" id="L565" title="All 2 branches missed.">        for (Resource&lt;?&gt; r : resources) {</span>
+<span class="nc" id="L566">            r.clear();</span>
+<span class="nc bnc" id="L567" title="All 2 branches missed.">            if (r.canExecute()) {</span>
+<span class="nc" id="L568">                executable.add(r);</span>
+            }
+        }
+
+<span class="nc" id="L572">        SortedList sl = new SortedList(executable.size());</span>
+<span class="nc bnc" id="L573" title="All 2 branches missed.">        for (Resource&lt;?&gt; r : executable) {</span>
+<span class="nc" id="L574">            sl.initialAdd(r);</span>
+<span class="nc" id="L575">        }</span>
+
+<span class="nc bnc" id="L577" title="All 2 branches missed.">        for (int coreId = 0; coreId &lt; workingCounts.length; coreId++) {</span>
+<span class="nc bnc" id="L578" title="All 2 branches missed.">            while (workingCounts[coreId] &gt; 0) {</span>
+                // Pressumes that all CE runs in every resource
+<span class="nc" id="L580">                Resource&lt;?&gt; r = sl.peek();</span>
+<span class="nc" id="L581">                r.time += r.profiles[coreId].getAverageExecutionTime();</span>
+<span class="nc" id="L582">                r.counts[coreId] += Math.min(r.capacity[coreId], workingCounts[coreId]);</span>
+<span class="nc" id="L583">                workingCounts[coreId] -= r.capacity[coreId];</span>
+<span class="nc" id="L584">                sl.add(r);</span>
+<span class="nc" id="L585">            }</span>
+        }
+
+        // Summary Execution
+<span class="nc" id="L589">        long time = minTime;</span>
+<span class="nc" id="L590">        double idlePower = 0;</span>
+<span class="nc" id="L591">        double actionsEnergy = 0;</span>
+<span class="nc" id="L592">        double idlePrice = 0;</span>
+<span class="nc" id="L593">        double actionsCost = 0;</span>
+<span class="nc bnc" id="L594" title="All 2 branches missed.">        for (Resource&lt;?&gt; r : resources) {</span>
+<span class="nc" id="L595">            double rActionsEnergy = r.startEnergy;</span>
+<span class="nc" id="L596">            double rActionsCost = r.startCost;</span>
+            // addToLog(&quot;\t&quot; + (r.worker != null ? r.getName() : &quot; NEW&quot;) + &quot;\n&quot;);
+<span class="nc" id="L598">            time = Math.max(time, r.time);</span>
+<span class="nc" id="L599">            idlePower += r.idlePower;</span>
+<span class="nc" id="L600">            idlePrice += r.idlePrice;</span>
+
+<span class="nc bnc" id="L602" title="All 2 branches missed.">            for (int coreId = 0; coreId &lt; r.counts.length; coreId++) {</span>
+<span class="nc" id="L603">                rActionsEnergy +=</span>
+<span class="nc" id="L604">                    r.counts[coreId] * r.profiles[coreId].getPower() * r.profiles[coreId].getAverageExecutionTime();</span>
+<span class="nc" id="L605">                rActionsCost +=</span>
+<span class="nc" id="L606">                    r.counts[coreId] * r.profiles[coreId].getPrice() * r.profiles[coreId].getAverageExecutionTime();</span>
+            }
+<span class="nc" id="L608">            actionsEnergy += rActionsEnergy;</span>
+<span class="nc" id="L609">            actionsCost += rActionsCost;</span>
+            // addToLog(&quot;\t\t Time: &quot; + time + &quot;ms\n&quot;);
+            // addToLog(&quot;\t\tactions Cost:&quot; + rActionsCost + &quot; € -&gt; total &quot; + actionsCost + &quot;€\n&quot;);
+            // addToLog(&quot;\t\tIdle Price:&quot; + r.idlePrice + &quot; €/h -&gt; total &quot; + idlePrice + &quot;€/h\n&quot;);
+            // addToLog(&quot;\t\tactions Energy:&quot; + rActionsEnergy + &quot; mJ -&gt; total &quot; + actionsEnergy + &quot;mJ\n&quot;);
+            // addToLog(&quot;\t\tIdle Power:&quot; + r.idlePower + &quot; W -&gt; total &quot; + idlePower + &quot;W\n&quot;);
+
+        }
+<span class="nc" id="L617">        return new ConfigurationCost(time, idlePower, actionsEnergy + minEnergy, idlePrice, actionsCost + minCost);</span>
+    }
+
+    private Resource&lt;?&gt; reduceResourceForComponent(Resource&lt;?&gt; excludedWorker,
+        CloudMethodResourceDescription reduction) {
+<span class="nc" id="L622">        Resource&lt;?&gt; clone = new Resource&lt;&gt;(excludedWorker.worker);</span>
+<span class="nc" id="L623">        clone.idlePower = excludedWorker.idlePower;</span>
+<span class="nc" id="L624">        clone.idlePrice = excludedWorker.idlePrice;</span>
+<span class="nc" id="L625">        clone.capacity = new int[excludedWorker.capacity.length];</span>
+<span class="nc" id="L626">        System.arraycopy(excludedWorker.capacity, 0, clone.capacity, 0, excludedWorker.capacity.length);</span>
+<span class="nc" id="L627">        clone.startTime = excludedWorker.startTime;</span>
+<span class="nc" id="L628">        clone.startEnergy = excludedWorker.startEnergy;</span>
+<span class="nc" id="L629">        clone.startCost = excludedWorker.startCost;</span>
+<span class="nc" id="L630">        clone.time = excludedWorker.time;</span>
+<span class="nc" id="L631">        clone.counts = excludedWorker.counts;</span>
+<span class="nc" id="L632">        Map&lt;CloudInstanceTypeDescription, int[]&gt; composition = reduction.getTypeComposition();</span>
+<span class="nc bnc" id="L633" title="All 2 branches missed.">        for (Map.Entry&lt;CloudInstanceTypeDescription, int[]&gt; component : composition.entrySet()) {</span>
+<span class="nc" id="L634">            CloudInstanceTypeDescription type = component.getKey();</span>
+<span class="nc" id="L635">            int count = component.getValue()[0];</span>
+<span class="nc" id="L636">            MethodResourceDescription rd = type.getResourceDescription();</span>
+<span class="nc" id="L637">            MOCloudTypeProfile moCloudTypeProf = (MOCloudTypeProfile) getCloudTypeProfile(type);</span>
+<span class="nc" id="L638">            clone.idlePower -= moCloudTypeProf.getIdlePower() * count;</span>
+<span class="nc" id="L639">            clone.idlePrice -= moCloudTypeProf.getIdlePrice() * count;</span>
+<span class="nc bnc" id="L640" title="All 2 branches missed.">            for (int coreId = 0; coreId &lt; CoreManager.getCoreCount(); coreId++) {</span>
+<span class="nc" id="L641">                List&lt;Implementation&gt; impls = CoreManager.getCoreImplementations(coreId);</span>
+<span class="nc" id="L642">                MOProfile[] profiles = new MOProfile[impls.size()];</span>
+<span class="nc bnc" id="L643" title="All 2 branches missed.">                for (int i = 0; i &lt; impls.size(); i++) {</span>
+<span class="nc" id="L644">                    profiles[i] =</span>
+<span class="nc" id="L645">                        (MOProfile) moCloudTypeProf.getImplProfiles(coreId, impls.get(i).getImplementationId());</span>
+                }
+<span class="nc" id="L647">                Implementation impl = getBestImplementation(impls, profiles);</span>
+<span class="nc" id="L648">                clone.capacity[coreId] -=</span>
+<span class="nc" id="L649">                    rd.canHostSimultaneously((MethodResourceDescription) impl.getRequirements()) * count;</span>
+            }
+<span class="nc" id="L651">        }</span>
+<span class="nc" id="L652">        return clone;</span>
+    }
+
+    private Resource&lt;?&gt; createResourceForCreationRequest(ResourceCreationRequest rcr) {
+<span class="nc" id="L656">        CloudMethodResourceDescription cmrd = rcr.getRequested();</span>
+<span class="nc" id="L657">        Resource&lt;?&gt; r = new Resource&lt;&gt;(null);</span>
+<span class="nc" id="L658">        Map&lt;CloudInstanceTypeDescription, int[]&gt; composition = cmrd.getTypeComposition();</span>
+<span class="nc" id="L659">        r.capacity = new int[CoreManager.getCoreCount()];</span>
+<span class="nc" id="L660">        r.profiles = new MOProfile[CoreManager.getCoreCount()];</span>
+
+<span class="nc bnc" id="L662" title="All 2 branches missed.">        for (Map.Entry&lt;CloudInstanceTypeDescription, int[]&gt; component : composition.entrySet()) {</span>
+<span class="nc" id="L663">            CloudInstanceTypeDescription type = component.getKey();</span>
+<span class="nc" id="L664">            int count = component.getValue()[0];</span>
+<span class="nc" id="L665">            MethodResourceDescription rd = type.getResourceDescription();</span>
+<span class="nc" id="L666">            MOCloudTypeProfile moCloudTypeProf = (MOCloudTypeProfile) getCloudTypeProfile(type);</span>
+<span class="nc" id="L667">            r.idlePower += moCloudTypeProf.getIdlePower() * count;</span>
+<span class="nc" id="L668">            r.idlePrice += moCloudTypeProf.getIdlePrice() * count;</span>
+
+<span class="nc bnc" id="L670" title="All 2 branches missed.">            for (int coreId = 0; coreId &lt; CoreManager.getCoreCount(); coreId++) {</span>
+<span class="nc" id="L671">                List&lt;Implementation&gt; impls = CoreManager.getCoreImplementations(coreId);</span>
+<span class="nc" id="L672">                MOProfile[] profiles = new MOProfile[impls.size()];</span>
+<span class="nc bnc" id="L673" title="All 2 branches missed.">                for (int i = 0; i &lt; impls.size(); i++) {</span>
+<span class="nc" id="L674">                    profiles[i] =</span>
+<span class="nc" id="L675">                        (MOProfile) moCloudTypeProf.getImplProfiles(coreId, impls.get(i).getImplementationId());</span>
+                }
+<span class="nc" id="L677">                Implementation impl = getBestImplementation(impls, profiles);</span>
+<span class="nc" id="L678">                r.capacity[coreId] +=</span>
+<span class="nc" id="L679">                    rd.canHostSimultaneously((MethodResourceDescription) impl.getRequirements()) * count;</span>
+<span class="nc" id="L680">                MOProfile bestImplProf =</span>
+<span class="nc" id="L681">                    (MOProfile) moCloudTypeProf.getImplProfiles(coreId, impl.getImplementationId());</span>
+<span class="nc bnc" id="L682" title="All 2 branches missed.">                if (r.profiles[coreId] == null) {</span>
+<span class="nc" id="L683">                    r.profiles[coreId] = bestImplProf;</span>
+                } else {
+<span class="nc" id="L685">                    r.profiles[coreId].accumulate(bestImplProf);</span>
+                }
+            }
+<span class="nc" id="L688">        }</span>
+<span class="nc" id="L689">        r.startTime =</span>
+<span class="nc" id="L690">            (cmrd.getImage().getCreationTime() * 1000) - (System.currentTimeMillis() - rcr.getRequestedTime());</span>
+<span class="nc bnc" id="L691" title="All 2 branches missed.">        if (r.startTime &lt; 0) {</span>
+<span class="nc" id="L692">            r.startTime = 0;</span>
+        }
+<span class="nc" id="L694">        r.clear();</span>
+<span class="nc" id="L695">        return r;</span>
+    }
+
+    private Resource&lt;?&gt; createResourceForComponent(CloudInstanceTypeDescription citd, CloudImageDescription cid) {
+<span class="nc" id="L699">        Resource&lt;?&gt; r = new Resource&lt;&gt;(null);</span>
+<span class="nc" id="L700">        MOCloudTypeProfile moCloudTypeProf = (MOCloudTypeProfile) getCloudTypeProfile(citd);</span>
+<span class="nc" id="L701">        r.idlePower = moCloudTypeProf.getIdlePower();</span>
+<span class="nc" id="L702">        r.idlePrice = moCloudTypeProf.getIdlePrice();</span>
+<span class="nc" id="L703">        MethodResourceDescription rd = citd.getResourceDescription();</span>
+<span class="nc" id="L704">        r.capacity = new int[CoreManager.getCoreCount()];</span>
+<span class="nc" id="L705">        r.profiles = new MOProfile[CoreManager.getCoreCount()];</span>
+<span class="nc bnc" id="L706" title="All 2 branches missed.">        for (int coreId = 0; coreId &lt; CoreManager.getCoreCount(); coreId++) {</span>
+<span class="nc" id="L707">            List&lt;Implementation&gt; impls = CoreManager.getCoreImplementations(coreId);</span>
+<span class="nc" id="L708">            MOProfile[] profiles = new MOProfile[impls.size()];</span>
+<span class="nc bnc" id="L709" title="All 2 branches missed.">            for (int i = 0; i &lt; impls.size(); i++) {</span>
+<span class="nc" id="L710">                profiles[i] = (MOProfile) moCloudTypeProf.getImplProfiles(coreId, impls.get(i).getImplementationId());</span>
+            }
+<span class="nc" id="L712">            Implementation impl = getBestImplementation(impls, profiles);</span>
+<span class="nc" id="L713">            r.capacity[coreId] = rd.canHostSimultaneously((MethodResourceDescription) impl.getRequirements());</span>
+<span class="nc" id="L714">            r.profiles[coreId] = (MOProfile) moCloudTypeProf.getImplProfiles(coreId, impl.getImplementationId());</span>
+        }
+<span class="nc" id="L716">        r.startTime = cid.getCreationTime() * 1000;</span>
+<span class="nc" id="L717">        r.clear();</span>
+<span class="nc" id="L718">        return r;</span>
+    }
+
+    private Implementation getBestImplementation(List&lt;Implementation&gt; impls, MOProfile[] profiles) {
+<span class="nc" id="L722">        Implementation impl = impls.get(0);</span>
+<span class="nc" id="L723">        MOScore bestScore = new MOScore(0, 0, 0, 0, profiles[0].getAverageExecutionTime(), profiles[0].getPower(),</span>
+<span class="nc" id="L724">            profiles[0].getPrice());</span>
+<span class="nc bnc" id="L725" title="All 2 branches missed.">        for (int i = 1; i &lt; impls.size(); i++) {</span>
+<span class="nc" id="L726">            Implementation candidate = impls.get(i);</span>
+<span class="nc" id="L727">            long length = profiles[i].getAverageExecutionTime();</span>
+<span class="nc" id="L728">            double power = profiles[i].getPower();</span>
+<span class="nc" id="L729">            double price = profiles[i].getPrice();</span>
+<span class="nc" id="L730">            MOScore score = new MOScore(0, 0, 0, 0, length, power * length, price);</span>
+<span class="nc bnc" id="L731" title="All 2 branches missed.">            if (Score.isBetter(score, bestScore)) {</span>
+<span class="nc" id="L732">                bestScore = score;</span>
+<span class="nc" id="L733">                impl = candidate;</span>
+            }
+        }
+<span class="nc" id="L736">        return impl;</span>
+    }
+
+    /*
+     * LOG OPPERATIONS
+     */
+
+    private void addToLog(String s) {
+<span class="nc" id="L744">        log.append(s);</span>
+<span class="nc" id="L745">    }</span>
+
+    private void printLog() {
+<span class="nc" id="L748">        System.out.println(log.toString() + &quot;\n&quot; + &quot;-----------------------------\n&quot;);</span>
+<span class="nc" id="L749">        log = new StringBuilder(</span>
+            &quot;-------------------------\n&quot; + &quot;    CHECK SCALABILITY    \n&quot; + &quot;-------------------------\n&quot;);
+<span class="nc" id="L751">    }</span>
+
+    /*
+     * SUPPORTING PROFILE CLASSES
+     */
+
+
+    protected class MOCloudTypeProfile extends CloudTypeProfile {
+
+        private final double idlePower;
+        private final double idlePrice;
+
+
+<span class="nc" id="L764">        public MOCloudTypeProfile(JSONObject typeJSON, JSONObject implsJSON) {</span>
+<span class="nc" id="L765">            super(typeJSON, implsJSON);</span>
+
+            double idlePower;
+            double idlePrice;
+<span class="nc bnc" id="L769" title="All 2 branches missed.">            if (typeJSON != null) {</span>
+                try {
+<span class="nc" id="L771">                    idlePower = typeJSON.getDouble(&quot;idlePower&quot;);</span>
+<span class="nc" id="L772">                } catch (JSONException je) {</span>
+<span class="nc" id="L773">                    idlePower = MOConfiguration.DEFAULT_IDLE_POWER;</span>
+<span class="nc" id="L774">                }</span>
+
+                try {
+<span class="nc" id="L777">                    idlePrice = typeJSON.getDouble(&quot;idlePrice&quot;);</span>
+<span class="nc" id="L778">                } catch (JSONException je) {</span>
+<span class="nc" id="L779">                    idlePrice = MOConfiguration.DEFAULT_IDLE_PRICE;</span>
+<span class="nc" id="L780">                }</span>
+            } else {
+<span class="nc" id="L782">                idlePower = MOConfiguration.DEFAULT_IDLE_POWER;</span>
+<span class="nc" id="L783">                idlePrice = MOConfiguration.DEFAULT_IDLE_PRICE;</span>
+            }
+<span class="nc" id="L785">            this.idlePower = idlePower;</span>
+<span class="nc" id="L786">            this.idlePrice = idlePrice;</span>
+<span class="nc" id="L787">        }</span>
+
+        public double getIdlePower() {
+<span class="nc" id="L790">            return this.idlePower;</span>
+        }
+
+        public double getIdlePrice() {
+<span class="nc" id="L794">            return this.idlePrice;</span>
+        }
+
+        @Override
+        protected Profile generateProfileForImplementation(Implementation impl, JSONObject jsonImpl) {
+<span class="nc" id="L799">            return new MOProfile(jsonImpl);</span>
+        }
+
+    }
+
+    /*
+     * SUPPORTING RESOURCE CLASSES
+     */
+
+    private class Resource&lt;T extends WorkerResourceDescription&gt; {
+
+        private final MOResourceScheduler&lt;T&gt; worker;
+        private double idlePower;
+        private double idlePrice;
+        private MOProfile[] profiles;
+        private int[] capacity;
+        private long startTime;
+        private double startEnergy;
+        private double startCost;
+        private long time;
+        private int[] counts;
+
+
+<span class="nc" id="L822">        public Resource(MOResourceScheduler&lt;T&gt; worker) {</span>
+<span class="nc" id="L823">            this.worker = worker;</span>
+<span class="nc" id="L824">        }</span>
+
+        public void clear() {
+<span class="nc" id="L827">            this.time = this.startTime;</span>
+<span class="nc" id="L828">            this.counts = new int[this.profiles.length];</span>
+<span class="nc" id="L829">        }</span>
+
+        private boolean canExecute() {
+<span class="nc bnc" id="L832" title="All 2 branches missed.">            if (this.worker != null) {</span>
+<span class="nc bnc" id="L833" title="All 2 branches missed.">                return !this.worker.hasPendingModifications();</span>
+            }
+<span class="nc" id="L835">            return true;</span>
+        }
+
+        private boolean hasPendingModifications() {
+<span class="nc bnc" id="L839" title="All 2 branches missed.">            if (this.worker != null) {</span>
+<span class="nc" id="L840">                return this.worker.hasPendingModifications();</span>
+            }
+<span class="nc" id="L842">            return true;</span>
+        }
+
+        private List&lt;ResourceUpdate&lt;T&gt;&gt; getPendingModifications() {
+<span class="nc bnc" id="L846" title="All 2 branches missed.">            if (this.worker != null) {</span>
+<span class="nc" id="L847">                return this.worker.getPendingModifications();</span>
+            }
+<span class="nc" id="L849">            return new LinkedList&lt;&gt;();</span>
+        }
+
+        private Worker&lt;?&gt; getResource() {
+<span class="nc bnc" id="L853" title="All 2 branches missed.">            if (this.worker != null) {</span>
+<span class="nc" id="L854">                return this.worker.getResource();</span>
+            }
+<span class="nc" id="L856">            return null;</span>
+        }
+
+        private String getName() {
+<span class="nc bnc" id="L860" title="All 2 branches missed.">            if (this.worker != null) {</span>
+<span class="nc" id="L861">                return this.worker.getName();</span>
+            }
+<span class="nc" id="L863">            return &quot;TEMPORARY&quot;;</span>
+        }
+
+    }
+
+    /*
+     * SUPPORTING LIST CLASSES
+     */
+
+    private class SortedList {
+
+        private final Resource&lt;?&gt;[] values;
+
+
+<span class="nc" id="L877">        public SortedList(int size) {</span>
+<span class="nc" id="L878">            this.values = new Resource[size];</span>
+<span class="nc" id="L879">        }</span>
+
+        public void initialAdd(Resource&lt;?&gt; r) {
+<span class="nc bnc" id="L882" title="All 2 branches missed.">            for (int i = 0; i &lt; this.values.length - 1; i++) {</span>
+<span class="nc bnc" id="L883" title="All 4 branches missed.">                if (this.values[i + 1] != null &amp;&amp; r.time &lt; this.values[i + 1].time) {</span>
+<span class="nc" id="L884">                    this.values[i] = r;</span>
+<span class="nc" id="L885">                    return;</span>
+                } else {
+<span class="nc" id="L887">                    this.values[i] = this.values[i + 1];</span>
+                }
+            }
+<span class="nc" id="L890">            this.values[this.values.length - 1] = r;</span>
+<span class="nc" id="L891">        }</span>
+
+        public void add(Resource&lt;?&gt; r) {
+<span class="nc bnc" id="L894" title="All 2 branches missed.">            for (int i = 0; i &lt; values.length - 1; i++) {</span>
+<span class="nc bnc" id="L895" title="All 2 branches missed.">                if (r.time &lt; values[i + 1].time) {</span>
+<span class="nc" id="L896">                    values[i] = r;</span>
+<span class="nc" id="L897">                    return;</span>
+                } else {
+<span class="nc" id="L899">                    values[i] = values[i + 1];</span>
+                }
+            }
+<span class="nc" id="L902">            values[values.length - 1] = r;</span>
+<span class="nc" id="L903">        }</span>
+
+        public Resource&lt;?&gt; peek() {
+<span class="nc" id="L906">            return values[0];</span>
+        }
+    }
+
+    /*
+     * SUPPORTING ACTION CLASSES
+     */
+
+    private class Action {
+
+        protected final String title;
+        private final ConfigurationCost cost;
+
+
+<span class="nc" id="L920">        public Action(ConfigurationCost cost) {</span>
+<span class="nc" id="L921">            this.title = &quot;Current Configuration&quot;;</span>
+<span class="nc" id="L922">            this.cost = cost;</span>
+<span class="nc" id="L923">        }</span>
+
+<span class="nc" id="L925">        public Action(String title, ConfigurationCost cost) {</span>
+<span class="nc" id="L926">            this.title = title;</span>
+<span class="nc" id="L927">            this.cost = cost;</span>
+<span class="nc" id="L928">        }</span>
+
+        @Override
+        public String toString() {
+<span class="nc" id="L932">            return this.title + &quot;:\n&quot; + this.cost.toString();</span>
+        }
+
+        public void perform() {
+            // Nothing to do since subclasses will override it
+<span class="nc" id="L937">        }</span>
+    }
+
+    private class ActionAdd extends Action {
+
+        private final CloudProvider provider;
+        private final CloudInstanceTypeDescription instance;
+        private final CloudImageDescription image;
+
+
+        public ActionAdd(CloudProvider provider, CloudInstanceTypeDescription component, CloudImageDescription image,
+<span class="nc" id="L948">            ConfigurationCost cost) {</span>
+<span class="nc" id="L949">            super(&quot;Add &quot; + component, cost);</span>
+
+<span class="nc" id="L951">            this.provider = provider;</span>
+<span class="nc" id="L952">            this.image = image;</span>
+<span class="nc" id="L953">            this.instance = component;</span>
+<span class="nc" id="L954">        }</span>
+
+        @Override
+        public void perform() {
+<span class="nc" id="L958">            RUNTIME_LOGGER.debug(&quot;[MOResourceOptimizer] Performing Add action &quot; + this);</span>
+<span class="nc" id="L959">            CloudMethodResourceDescription cmrd = new CloudMethodResourceDescription(this.instance, this.image);</span>
+<span class="nc" id="L960">            this.provider.requestResourceCreation(cmrd, null);</span>
+<span class="nc" id="L961">        }</span>
+    }
+
+    private class ActionRemove extends Action {
+
+        private final Resource&lt;?&gt; res;
+        private final CloudInstanceTypeDescription citd;
+
+
+<span class="nc" id="L970">        public ActionRemove(Resource&lt;?&gt; res, CloudInstanceTypeDescription reduction, ConfigurationCost cost) {</span>
+<span class="nc" id="L971">            super(&quot;Remove &quot; + res.getName(), cost);</span>
+
+<span class="nc" id="L973">            this.citd = reduction;</span>
+<span class="nc" id="L974">            this.res = res;</span>
+<span class="nc" id="L975">        }</span>
+
+        @Override
+        public void perform() {
+<span class="nc" id="L979">            RUNTIME_LOGGER.debug(&quot;[MOResourceOptimizer] Performing Remove action &quot; + this);</span>
+<span class="nc" id="L980">            CloudMethodWorker worker = (CloudMethodWorker) this.res.getResource();</span>
+<span class="nc" id="L981">            CloudMethodResourceDescription reduction =</span>
+<span class="nc" id="L982">                new CloudMethodResourceDescription(this.citd, worker.getDescription().getImage());</span>
+<span class="nc" id="L983">            ResourceManager.requestWorkerReduction(worker, reduction);</span>
+<span class="nc" id="L984">        }</span>
+    }
+
+    private class ConfigurationCost {
+
+        private final double time; // secs
+        private final double energy; // Wh
+        private final double cost; // €
+        private final double power; // W
+        private final double price; // €/h
+
+
+        public ConfigurationCost(double time, double idlePower, double fixedEnergy, double idlePrice,
+<span class="nc" id="L997">            double fixedCost) {</span>
+<span class="nc" id="L998">            this.time = (double) (time / 1_000);</span>
+<span class="nc" id="L999">            this.energy = (double) ((idlePower * time + fixedEnergy) / 3_600_000);</span>
+<span class="nc" id="L1000">            this.cost = (double) (((idlePrice * time) + fixedCost) / 3_600_000);</span>
+<span class="nc" id="L1001">            this.power = idlePower + (double) (fixedEnergy / time);</span>
+<span class="nc" id="L1002">            this.price = idlePrice + (double) (fixedCost / time);</span>
+<span class="nc" id="L1003">        }</span>
+
+        @Override
+        public String toString() {
+<span class="nc" id="L1007">            return &quot;Configuration Cost:\n&quot; + &quot;\tTime: &quot; + this.time + &quot;s\n&quot; + &quot;\tEnergy: &quot; + this.energy + &quot;Wh\n&quot;</span>
+                + &quot;\tCost: &quot; + this.cost + &quot;€\n&quot; + &quot;\tPower: &quot; + this.power + &quot;W\n&quot; + &quot;\tPrice: &quot; + this.price
+                + &quot;€/h\n&quot;;
+        }
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

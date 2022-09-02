@@ -1,0 +1,343 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SchedulingEvent.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">COMPSs Scheduler Full Graph Multi-Objetive</a> &gt; <a href="index.source.html" class="el_package">es.bsc.compss.scheduler.multiobjective.types</a> &gt; <span class="el_source">SchedulingEvent.java</span></div><h1>SchedulingEvent.java</h1><pre class="source lang-java linenums">/*
+ *  Copyright 2002-2021 Barcelona Supercomputing Center (www.bsc.es)
+ *
+ *  Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ */
+package es.bsc.compss.scheduler.multiobjective.types;
+
+import es.bsc.compss.scheduler.multiobjective.MOResourceScheduler;
+import es.bsc.compss.scheduler.multiobjective.MOSchedulingInformation;
+import es.bsc.compss.scheduler.types.AllocatableAction;
+import es.bsc.compss.scheduler.types.Profile;
+import es.bsc.compss.types.implementations.Implementation;
+import es.bsc.compss.types.resources.ResourceDescription;
+import es.bsc.compss.types.resources.WorkerResourceDescription;
+
+import java.util.Comparator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.PriorityQueue;
+
+
+public abstract class SchedulingEvent implements Comparable&lt;SchedulingEvent&gt; {
+
+    protected long expectedTimeStamp;
+    protected AllocatableAction action;
+
+
+<span class="nc" id="L39">    public SchedulingEvent(long timeStamp, AllocatableAction action) {</span>
+<span class="nc" id="L40">        this.expectedTimeStamp = timeStamp;</span>
+<span class="nc" id="L41">        this.action = action;</span>
+<span class="nc" id="L42">    }</span>
+
+    @Override
+    public int compareTo(SchedulingEvent e) {
+<span class="nc" id="L46">        int time = Long.compare(expectedTimeStamp, e.expectedTimeStamp);</span>
+<span class="nc bnc" id="L47" title="All 2 branches missed.">        if (time == 0) {</span>
+<span class="nc" id="L48">            return (getPriority() - e.getPriority());</span>
+        }
+<span class="nc" id="L50">        return time;</span>
+    }
+
+    public AllocatableAction getAction() {
+<span class="nc" id="L54">        return action;</span>
+    }
+
+    protected abstract int getPriority();
+
+    public abstract List&lt;SchedulingEvent&gt; process(LocalOptimizationState state,
+        MOResourceScheduler&lt;WorkerResourceDescription&gt; worker, PriorityQueue&lt;AllocatableAction&gt; rescheduledActions);
+
+
+    public static class Start extends SchedulingEvent {
+
+        public Start(long timeStamp, AllocatableAction action) {
+<span class="nc" id="L66">            super(timeStamp, action);</span>
+<span class="nc" id="L67">        }</span>
+
+        @Override
+        protected int getPriority() {
+<span class="nc" id="L71">            return 1;</span>
+        }
+
+        @Override
+        public String toString() {
+<span class="nc" id="L76">            return action + &quot; start @ &quot; + expectedTimeStamp;</span>
+        }
+
+        @Override
+        public List&lt;SchedulingEvent&gt; process(LocalOptimizationState state,
+            MOResourceScheduler&lt;WorkerResourceDescription&gt; worker,
+            PriorityQueue&lt;AllocatableAction&gt; rescheduledActions) {
+
+<span class="nc" id="L84">            List&lt;SchedulingEvent&gt; enabledEvents = new LinkedList&lt;&gt;();</span>
+<span class="nc" id="L85">            MOSchedulingInformation dsi = (MOSchedulingInformation) action.getSchedulingInfo();</span>
+
+            // Set the expected Start time and endTime of the action
+<span class="nc" id="L88">            dsi.setExpectedStart(expectedTimeStamp);</span>
+<span class="nc" id="L89">            long expectedEndTime = getExpectedEnd(action, worker, expectedTimeStamp);</span>
+<span class="nc" id="L90">            dsi.setExpectedEnd(expectedEndTime);</span>
+            // Add corresponding end event
+<span class="nc" id="L92">            SchedulingEvent endEvent = new End(expectedEndTime, action);</span>
+<span class="nc" id="L93">            enabledEvents.add(endEvent);</span>
+
+            // Remove resources from the state and fill the gaps before its execution
+<span class="nc" id="L96">            dsi.clearPredecessors();</span>
+<span class="nc" id="L97">            dsi.clearSuccessors();</span>
+<span class="nc" id="L98">            List&lt;Gap&gt; tmpGaps =</span>
+<span class="nc" id="L99">                state.reserveResources(action.getAssignedImplementation().getRequirements(), expectedTimeStamp);</span>
+
+<span class="nc bnc" id="L101" title="All 2 branches missed.">            for (Gap tmpGap : tmpGaps) {</span>
+<span class="nc" id="L102">                AllocatableAction gapAction = tmpGap.getOrigin();</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">                if (expectedTimeStamp == tmpGap.getEndTime()) {</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">                    if (gapAction != null) {</span>
+<span class="nc" id="L105">                        MOSchedulingInformation gapActionDSI = (MOSchedulingInformation) gapAction.getSchedulingInfo();</span>
+<span class="nc" id="L106">                        gapActionDSI.addSuccessor(action);</span>
+<span class="nc" id="L107">                        dsi.addPredecessor(tmpGap);</span>
+<span class="nc" id="L108">                        state.removeTmpGap(tmpGap);</span>
+<span class="nc" id="L109">                    }</span>
+                } else {
+<span class="nc" id="L111">                    PriorityQueue&lt;Gap&gt; outGaps = fillGap(worker, tmpGap, rescheduledActions, state);</span>
+<span class="nc bnc" id="L112" title="All 2 branches missed.">                    for (Gap outGap : outGaps) {</span>
+<span class="nc" id="L113">                        AllocatableAction pred = outGap.getOrigin();</span>
+<span class="nc bnc" id="L114" title="All 2 branches missed.">                        if (pred != null) {</span>
+<span class="nc" id="L115">                            MOSchedulingInformation predDSI = (MOSchedulingInformation) pred.getSchedulingInfo();</span>
+<span class="nc" id="L116">                            predDSI.addSuccessor(action);</span>
+<span class="nc" id="L117">                            dsi.addPredecessor(outGap);</span>
+                        }
+<span class="nc" id="L119">                        state.removeTmpGap(outGap);</span>
+<span class="nc" id="L120">                    }</span>
+                }
+<span class="nc" id="L122">            }</span>
+<span class="nc" id="L123">            rescheduledActions.offer(action);</span>
+<span class="nc" id="L124">            return enabledEvents;</span>
+        }
+
+        private PriorityQueue&lt;Gap&gt; fillGap(MOResourceScheduler&lt;WorkerResourceDescription&gt; worker, Gap gap,
+            PriorityQueue&lt;AllocatableAction&gt; rescheduledActions, LocalOptimizationState state) {
+            // Find selected action predecessors
+<span class="nc" id="L130">            PriorityQueue&lt;Gap&gt; availableGaps = new PriorityQueue&lt;Gap&gt;(1, new Comparator&lt;Gap&gt;() {</span>
+
+                @Override
+                public int compare(Gap g1, Gap g2) {
+<span class="nc" id="L134">                    return Long.compare(g1.getInitialTime(), g2.getInitialTime());</span>
+                }
+
+            });
+
+<span class="nc" id="L139">            AllocatableAction gapAction = state.pollActionForGap(gap);</span>
+
+<span class="nc bnc" id="L141" title="All 2 branches missed.">            if (gapAction != null) {</span>
+                // Compute method start
+<span class="nc" id="L143">                MOSchedulingInformation gapActionDSI = (MOSchedulingInformation) gapAction.getSchedulingInfo();</span>
+<span class="nc" id="L144">                gapActionDSI.setToReschedule(false);</span>
+<span class="nc" id="L145">                long gapActionStart = Math.max(gapActionDSI.getExpectedStart(), gap.getInitialTime());</span>
+
+                // Fill previous gap space
+<span class="nc bnc" id="L148" title="All 2 branches missed.">                if (gap.getInitialTime() != gapActionStart) {</span>
+<span class="nc" id="L149">                    Gap previousGap =</span>
+<span class="nc" id="L150">                        new Gap(gap.getInitialTime(), gapActionStart, gap.getOrigin(), gap.getResources().copy(), 0);</span>
+<span class="nc" id="L151">                    state.replaceTmpGap(gap, previousGap);</span>
+<span class="nc" id="L152">                    availableGaps = fillGap(worker, previousGap, rescheduledActions, state);</span>
+<span class="nc" id="L153">                } else {</span>
+<span class="nc" id="L154">                    availableGaps.add(gap);</span>
+                }
+
+<span class="nc" id="L157">                gapActionDSI.lock();</span>
+                // Update Information
+<span class="nc" id="L159">                gapActionDSI.setExpectedStart(gapActionStart);</span>
+<span class="nc" id="L160">                long expectedEnd = getExpectedEnd(gapAction, worker, gapActionStart);</span>
+<span class="nc" id="L161">                gapActionDSI.setExpectedEnd(expectedEnd);</span>
+<span class="nc" id="L162">                gapActionDSI.clearPredecessors();</span>
+
+<span class="nc" id="L164">                ResourceDescription desc = gapAction.getAssignedImplementation().getRequirements().copy();</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">                while (!desc.isDynamicUseless()) {</span>
+<span class="nc" id="L166">                    Gap peekGap = availableGaps.peek();</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">                    if (peekGap != null) {</span>
+<span class="nc" id="L168">                        AllocatableAction peekAction = peekGap.getOrigin();</span>
+<span class="nc bnc" id="L169" title="All 2 branches missed.">                        if (peekAction != null) {</span>
+<span class="nc" id="L170">                            MOSchedulingInformation predActionDSI =</span>
+<span class="nc" id="L171">                                (MOSchedulingInformation) peekAction.getSchedulingInfo();</span>
+<span class="nc" id="L172">                            gapActionDSI.addPredecessor(peekGap);</span>
+<span class="nc" id="L173">                            predActionDSI.addSuccessor(gapAction);</span>
+                        }
+<span class="nc" id="L175">                        ResourceDescription.reduceCommonDynamics(desc, peekGap.getResources());</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">                        if (peekGap.getResources().isDynamicUseless()) {</span>
+<span class="nc" id="L177">                            availableGaps.poll();</span>
+<span class="nc" id="L178">                            state.removeTmpGap(gap);</span>
+                        }
+                    } else {
+                        // I have added this if not if remains in the while
+                        break;
+                    }
+<span class="nc" id="L184">                }</span>
+
+<span class="nc" id="L186">                List&lt;Gap&gt; extendedGaps = new LinkedList&lt;&gt;();</span>
+                // Fill Concurrent
+<span class="nc bnc" id="L188" title="All 2 branches missed.">                for (Gap g : availableGaps) {</span>
+<span class="nc" id="L189">                    Gap extendedGap =</span>
+<span class="nc" id="L190">                        new Gap(g.getInitialTime(), gap.getEndTime(), g.getOrigin(), g.getResources(), g.getCapacity());</span>
+<span class="nc" id="L191">                    state.replaceTmpGap(extendedGap, gap);</span>
+<span class="nc" id="L192">                    extendedGaps.add(extendedGap);</span>
+<span class="nc" id="L193">                }</span>
+
+<span class="nc" id="L195">                availableGaps.clear();</span>
+<span class="nc bnc" id="L196" title="All 2 branches missed.">                for (Gap eg : extendedGaps) {</span>
+<span class="nc" id="L197">                    availableGaps.addAll(fillGap(worker, eg, rescheduledActions, state));</span>
+<span class="nc" id="L198">                }</span>
+
+<span class="nc" id="L200">                gapActionDSI.clearSuccessors();</span>
+<span class="nc" id="L201">                rescheduledActions.add(gapAction);</span>
+
+<span class="nc" id="L203">                gapActionDSI.setOnOptimization(false);</span>
+                // Release Data Successors
+<span class="nc" id="L205">                state.releaseDataSuccessors(gapActionDSI, expectedEnd);</span>
+
+                // Fill Post action gap space
+<span class="nc" id="L208">                Gap actionGap = new Gap(expectedEnd, gap.getEndTime(), gapAction,</span>
+<span class="nc" id="L209">                    gapAction.getAssignedImplementation().getRequirements(), 0);</span>
+<span class="nc" id="L210">                state.addTmpGap(actionGap);</span>
+<span class="nc" id="L211">                availableGaps.addAll(fillGap(worker, actionGap, rescheduledActions, state));</span>
+<span class="nc" id="L212">            } else {</span>
+<span class="nc" id="L213">                availableGaps.add(gap);</span>
+            }
+<span class="nc" id="L215">            return availableGaps;</span>
+        }
+
+        private long getExpectedEnd(AllocatableAction action, MOResourceScheduler&lt;WorkerResourceDescription&gt; worker,
+            long expectedStart) {
+            long theoreticalEnd;
+<span class="nc bnc" id="L221" title="All 2 branches missed.">            if (action.isToReleaseResources()) {</span>
+<span class="nc" id="L222">                Implementation impl = action.getAssignedImplementation();</span>
+<span class="nc" id="L223">                Profile p = worker.getProfile(impl);</span>
+<span class="nc" id="L224">                long endTime = expectedStart;</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">                if (p != null) {</span>
+<span class="nc" id="L226">                    endTime += p.getAverageExecutionTime();</span>
+                }
+<span class="nc bnc" id="L228" title="All 2 branches missed.">                if (endTime &lt; 0) {</span>
+<span class="nc" id="L229">                    endTime = 0;</span>
+                }
+<span class="nc" id="L231">                theoreticalEnd = endTime;</span>
+<span class="nc" id="L232">            } else {</span>
+<span class="nc" id="L233">                theoreticalEnd = Long.MAX_VALUE;</span>
+            }
+<span class="nc bnc" id="L235" title="All 2 branches missed.">            if (theoreticalEnd &lt; expectedStart) {</span>
+<span class="nc" id="L236">                return Long.MAX_VALUE;</span>
+            } else {
+<span class="nc" id="L238">                return theoreticalEnd;</span>
+            }
+        }
+
+    }
+
+    public static class End extends SchedulingEvent {
+
+        public End(long timeStamp, AllocatableAction action) {
+<span class="nc" id="L247">            super(timeStamp, action);</span>
+<span class="nc" id="L248">        }</span>
+
+        @Override
+        protected int getPriority() {
+<span class="nc" id="L252">            return 0;</span>
+        }
+
+        @Override
+        public List&lt;SchedulingEvent&gt; process(LocalOptimizationState state,
+            MOResourceScheduler&lt;WorkerResourceDescription&gt; worker,
+            PriorityQueue&lt;AllocatableAction&gt; rescheduledActions) {
+
+<span class="nc" id="L260">            List&lt;SchedulingEvent&gt; enabledEvents = new LinkedList&lt;&gt;();</span>
+<span class="nc" id="L261">            MOSchedulingInformation dsi = (MOSchedulingInformation) action.getSchedulingInfo();</span>
+<span class="nc" id="L262">            dsi.setOnOptimization(false);</span>
+
+            // Move from readyActions to selectable
+<span class="nc" id="L265">            state.progressOnTime(expectedTimeStamp);</span>
+
+            // Detect released Actions
+<span class="nc" id="L268">            state.releaseDataSuccessors(dsi, expectedTimeStamp);</span>
+
+            // Get Top Action
+<span class="nc" id="L271">            AllocatableAction currentTop = state.getMostPrioritaryRunnableAction();</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">            if (state.getAction() != currentTop) {</span>
+<span class="nc" id="L273">                state.replaceAction(currentTop);</span>
+            }
+<span class="nc bnc" id="L275" title="All 2 branches missed.">            if (action.isToReleaseResources()) {</span>
+<span class="nc" id="L276">                state.releaseResources(expectedTimeStamp, action);</span>
+            }
+<span class="nc" id="L278">            state.updateConsumptions(action);</span>
+
+<span class="nc bnc" id="L280" title="All 2 branches missed.">            while (state.canActionRun()) {</span>
+<span class="nc" id="L281">                state.removeMostPrioritaryRunnableAction(currentTop.getCoreId());</span>
+<span class="nc" id="L282">                MOSchedulingInformation topDSI = (MOSchedulingInformation) currentTop.getSchedulingInfo();</span>
+<span class="nc" id="L283">                topDSI.lock();</span>
+<span class="nc" id="L284">                topDSI.setToReschedule(false);</span>
+<span class="nc bnc" id="L285" title="All 2 branches missed.">                if (action.isToReleaseResources()) {</span>
+<span class="nc" id="L286">                    SchedulingEvent se = new Start(state.getActionStartTime(), currentTop);</span>
+<span class="nc" id="L287">                    enabledEvents.addAll(se.process(state, worker, rescheduledActions));</span>
+<span class="nc" id="L288">                } else {</span>
+<span class="nc" id="L289">                    SchedulingEvent se = new ResourceBlocked(state.getActionStartTime(), currentTop);</span>
+<span class="nc" id="L290">                    enabledEvents.addAll(se.process(state, worker, rescheduledActions));</span>
+                }
+
+<span class="nc" id="L293">                currentTop = state.getMostPrioritaryRunnableAction();</span>
+<span class="nc" id="L294">                state.replaceAction(currentTop);</span>
+<span class="nc" id="L295">            }</span>
+<span class="nc" id="L296">            return enabledEvents;</span>
+        }
+
+        @Override
+        public String toString() {
+<span class="nc" id="L301">            return action + &quot; end @ &quot; + expectedTimeStamp;</span>
+        }
+    }
+
+    public static class ResourceBlocked extends SchedulingEvent {
+
+        public ResourceBlocked(long timeStamp, AllocatableAction action) {
+<span class="nc" id="L308">            super(timeStamp, action);</span>
+<span class="nc" id="L309">        }</span>
+
+        @Override
+        protected int getPriority() {
+<span class="nc" id="L313">            return 0;</span>
+        }
+
+        @Override
+        public List&lt;SchedulingEvent&gt; process(LocalOptimizationState state,
+            MOResourceScheduler&lt;WorkerResourceDescription&gt; worker,
+            PriorityQueue&lt;AllocatableAction&gt; rescheduledActions) {
+<span class="nc" id="L320">            MOSchedulingInformation dsi = (MOSchedulingInformation) action.getSchedulingInfo();</span>
+<span class="nc" id="L321">            dsi.setOnOptimization(false);</span>
+<span class="nc" id="L322">            dsi.clearPredecessors();</span>
+<span class="nc" id="L323">            dsi.clearSuccessors();</span>
+<span class="nc" id="L324">            dsi.setExpectedStart(Long.MAX_VALUE);</span>
+<span class="nc" id="L325">            dsi.setExpectedEnd(Long.MAX_VALUE);</span>
+            // Actions is registered as blocked because of lack of resources
+<span class="nc" id="L327">            state.resourceBlockedAction(action);</span>
+
+            // Register all successors as Blocked Actions
+<span class="nc" id="L330">            state.blockDataSuccessors(dsi);</span>
+<span class="nc" id="L331">            dsi.unlock();</span>
+<span class="nc" id="L332">            rescheduledActions.add(action);</span>
+<span class="nc" id="L333">            return new LinkedList&lt;&gt;();</span>
+        }
+
+        @Override
+        public String toString() {
+<span class="nc" id="L338">            return action + &quot; resourceBlocked&quot;;</span>
+        }
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

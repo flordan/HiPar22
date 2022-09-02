@@ -10,12 +10,16 @@ The `randomforest.RandomForest` class is the main class of the `FLAT` version of
 The `randomforest.batch.RandomForest` class is the main class of the `NESTED` version of the application. In this version of the algorithm, three methods are selected as tasks: `generateTaskBatch`, `randomSelection` and `trainTreeWithDataset` as indicated in `randomforest.batch.RandomForestItf` interface. While `generateTaskBatch` can be executed by any node of the infrastructure reserving 48 cores of the node, the other two tasks can only be executed in the same node that detected them sugin a single core. This version accepts three parameters: the number of models to train on one execution, the number of estimators for each model and the size of the batch - at least, 48 . By default, it creates 1 model of 1 estimator in one single batch.
 
 # Test Execution
-To launch the application, users can directly call the `launch` script within the test folder passing in the indicated parameters for the version.
+To launch the application, users can directly call the `launch` script within the test folder passing in the indicated parameters for the version which are:
+- NUM_MODELS: number of models being trained
+- NUM_ESTIMATORS: number of estimators for each model
+- BATCH_SIZE: number of estimators in computed by each batch (only affects to the NESTED version) 
+
 ```bash
 > launch <FLAT|NESTED> [NUM_MODELS [NUM_ESTIMATORS [BATCH_SIZE]]]
 ```
 
-Otherwise, the user can use the `launch_test` script in the root folder of the repository or the container passing in `random_forest` as the first parameter . Both ways end up calling the launch script removing the application name.
+Otherwise, the user can use the `launch_test` script in the root folder of the repository or the container passing in `random_forest` as the first parameter. Both ways end up calling the launch script removing the application name.
 ```bash
 > launch_test random_forest <FLAT|NESTED> [NUM_MODELS [NUM_ESTIMATORS [BATCH_SIZE]]]
 > docker run --rm compss/hipar22:latest random_forest <FLAT|NESTED> [NUM_MODELS [NUM_ESTIMATORS [BATCH_SIZE]]]

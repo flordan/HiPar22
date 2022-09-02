@@ -1,0 +1,438 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MOSchedulingInformation.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">COMPSs Scheduler Full Graph Multi-Objetive</a> &gt; <a href="index.source.html" class="el_package">es.bsc.compss.scheduler.multiobjective</a> &gt; <span class="el_source">MOSchedulingInformation.java</span></div><h1>MOSchedulingInformation.java</h1><pre class="source lang-java linenums">/*
+ *  Copyright 2002-2021 Barcelona Supercomputing Center (www.bsc.es)
+ *
+ *  Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ */
+package es.bsc.compss.scheduler.multiobjective;
+
+import es.bsc.compss.components.impl.ResourceScheduler;
+import es.bsc.compss.scheduler.multiobjective.types.Gap;
+import es.bsc.compss.scheduler.types.AllocatableAction;
+import es.bsc.compss.scheduler.types.SchedulingInformation;
+import es.bsc.compss.types.parameter.Parameter;
+import es.bsc.compss.types.resources.WorkerResourceDescription;
+
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
+
+
+public class MOSchedulingInformation extends SchedulingInformation {
+
+    // Lock to avoid multiple threads to modify the content at the same time
+<span class="fc" id="L36">    private final ReentrantLock l = new ReentrantLock();</span>
+
+<span class="fc" id="L38">    private boolean scheduled = false;</span>
+    private long lastUpdate;
+    private long expectedStart;
+    private long expectedEnd;
+
+<span class="fc" id="L43">    private int openGaps = 0;</span>
+
+    // Allocatable actions that the action depends on due to resource availability
+    private final List&lt;Gap&gt; resourcePredecessors;
+
+    // Allocatable actions depending on the allocatable action due to resource availability
+    private List&lt;AllocatableAction&gt; resourceSuccessors;
+
+    // Action Scheduling is being optimized locally
+<span class="fc" id="L52">    private boolean onOptimization = false;</span>
+<span class="fc" id="L53">    private boolean toReschedule = false;</span>
+    private final List&lt;AllocatableAction&gt; optimizingSuccessors;
+
+
+    /**
+     * Creates a new MOSchedulingInformation instance.
+     * 
+     * @param enforcedTargetResource Enforced target resource.
+     */
+    public &lt;T extends WorkerResourceDescription&gt; MOSchedulingInformation(ResourceScheduler&lt;T&gt; enforcedTargetResource) {
+<span class="fc" id="L63">        super(enforcedTargetResource);</span>
+<span class="fc" id="L64">        this.resourcePredecessors = new LinkedList&lt;&gt;();</span>
+<span class="fc" id="L65">        this.resourceSuccessors = new LinkedList&lt;&gt;();</span>
+
+<span class="fc" id="L67">        this.lastUpdate = System.currentTimeMillis();</span>
+<span class="fc" id="L68">        this.expectedStart = 0;</span>
+<span class="fc" id="L69">        this.expectedEnd = 0;</span>
+
+<span class="fc" id="L71">        this.optimizingSuccessors = new LinkedList&lt;&gt;();</span>
+<span class="fc" id="L72">    }</span>
+
+    @Override
+    public final boolean isExecutable() {
+<span class="nc" id="L76">        boolean b = true;</span>
+<span class="nc" id="L77">        lock();</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        for (Gap g : this.resourcePredecessors) {</span>
+<span class="nc bnc" id="L79" title="All 4 branches missed.">            b = b &amp;&amp; (g.getOrigin() == null);</span>
+<span class="nc" id="L80">        }</span>
+<span class="nc" id="L81">        unlock();</span>
+<span class="nc" id="L82">        return b;</span>
+    }
+
+    /**
+     * Adds a predecessor.
+     * 
+     * @param predecessor Predecessor.
+     */
+    public void addPredecessor(Gap predecessor) {
+<span class="nc" id="L91">        this.resourcePredecessors.add(predecessor);</span>
+<span class="nc" id="L92">    }</span>
+
+    /**
+     * Returns whether it has predecessors or not.
+     * 
+     * @return {@literal true} if there are precessors, {@literal false} otherwise.
+     */
+    public boolean hasPredecessors() {
+<span class="nc bnc" id="L100" title="All 2 branches missed.">        return !this.resourcePredecessors.isEmpty();</span>
+    }
+
+    /**
+     * Returns the list of predecessors.
+     * 
+     * @return The list of predecessors.
+     */
+    public List&lt;Gap&gt; getPredecessors() {
+<span class="nc" id="L109">        return this.resourcePredecessors;</span>
+    }
+
+    /**
+     * Removes the given action from the predecessors.
+     * 
+     * @param successor Predecessor to remove.
+     * @return Predecessor removed.
+     */
+    public Gap removePredecessor(AllocatableAction successor) {
+<span class="nc" id="L119">        Iterator&lt;Gap&gt; it = this.resourcePredecessors.iterator();</span>
+<span class="nc" id="L120">        Gap g = null;</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">        while (it.hasNext()) {</span>
+<span class="nc" id="L122">            g = it.next();</span>
+<span class="nc bnc" id="L123" title="All 2 branches missed.">            if (g.getOrigin() == successor) {</span>
+<span class="nc" id="L124">                it.remove();</span>
+            }
+        }
+<span class="nc" id="L127">        return g;</span>
+    }
+
+    /**
+     * Clears all the predecessors.
+     */
+    public void clearPredecessors() {
+<span class="nc" id="L134">        this.resourcePredecessors.clear();</span>
+<span class="nc" id="L135">    }</span>
+
+    /**
+     * Adds a new successor.
+     * 
+     * @param successor Successor to add.
+     */
+    public void addSuccessor(AllocatableAction successor) {
+<span class="nc" id="L143">        this.resourceSuccessors.add(successor);</span>
+<span class="nc" id="L144">    }</span>
+
+    /**
+     * Returns a list of successor actions.
+     * 
+     * @return A list of successor actions.
+     */
+    public List&lt;AllocatableAction&gt; getSuccessors() {
+<span class="nc" id="L152">        return this.resourceSuccessors;</span>
+    }
+
+    /**
+     * Removes the given successor.
+     * 
+     * @param successor Successor action to remove.
+     */
+    public void removeSuccessor(AllocatableAction successor) {
+<span class="nc" id="L161">        this.resourceSuccessors.remove(successor);</span>
+<span class="nc" id="L162">    }</span>
+
+    /**
+     * Removes all successors.
+     */
+    public void clearSuccessors() {
+<span class="nc" id="L168">        this.resourceSuccessors.clear();</span>
+<span class="nc" id="L169">    }</span>
+
+    /**
+     * Replaces the current list of successors.
+     * 
+     * @param newSuccessors New list of successors.
+     * @return Old successors.
+     */
+    public List&lt;AllocatableAction&gt; replaceSuccessors(List&lt;AllocatableAction&gt; newSuccessors) {
+<span class="nc" id="L178">        List&lt;AllocatableAction&gt; oldSuccessors = this.resourceSuccessors;</span>
+<span class="nc" id="L179">        this.resourceSuccessors = newSuccessors;</span>
+<span class="nc" id="L180">        return oldSuccessors;</span>
+    }
+
+    /**
+     * Sets a new expected start.
+     * 
+     * @param expectedStart New expected start.
+     */
+    public void setExpectedStart(long expectedStart) {
+<span class="fc" id="L189">        this.expectedStart = expectedStart;</span>
+<span class="fc" id="L190">    }</span>
+
+    /**
+     * Returns the expected start.
+     * 
+     * @return The expected start.
+     */
+    public long getExpectedStart() {
+<span class="nc" id="L198">        return this.expectedStart;</span>
+    }
+
+    /**
+     * Sets a new expected end.
+     * 
+     * @param expectedEnd New expected end.
+     */
+    public void setExpectedEnd(long expectedEnd) {
+<span class="fc" id="L207">        this.expectedEnd = expectedEnd;</span>
+<span class="fc" id="L208">    }</span>
+
+    /**
+     * Returns the expected end time.
+     * 
+     * @return The expected end time.
+     */
+    public long getExpectedEnd() {
+<span class="nc" id="L216">        return this.expectedEnd;</span>
+    }
+
+    /**
+     * Sets a new update time.
+     * 
+     * @param lastUpdate New update time.
+     */
+    public void setLastUpdate(long lastUpdate) {
+<span class="nc" id="L225">        this.lastUpdate = lastUpdate;</span>
+<span class="nc" id="L226">    }</span>
+
+    /**
+     * Returns the last update time.
+     * 
+     * @return The last update time.
+     */
+    public long getLastUpdate() {
+<span class="nc" id="L234">        return this.lastUpdate;</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="nc" id="L239">        StringBuilder sb = new StringBuilder(&quot;\tlastUpdate: &quot; + this.lastUpdate + &quot;\n&quot; + &quot;\texpectedStart: &quot;</span>
+            + this.expectedStart + &quot;\n&quot; + &quot;\texpectedEnd:&quot; + this.expectedEnd + &quot;\n&quot;);
+<span class="nc" id="L241">        sb.append(&quot;\t&quot;).append(&quot;schedPredecessors: &quot;);</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">        for (Gap g : getPredecessors()) {</span>
+<span class="nc" id="L243">            sb.append(&quot; &quot;).append(g.getOrigin());</span>
+<span class="nc" id="L244">        }</span>
+<span class="nc" id="L245">        sb.append(&quot;\n&quot;);</span>
+<span class="nc" id="L246">        sb.append(&quot;\t&quot;).append(&quot;schedSuccessors: &quot;);</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">        for (AllocatableAction aa : getSuccessors()) {</span>
+<span class="nc" id="L248">            sb.append(&quot; &quot;).append(aa);</span>
+<span class="nc" id="L249">        }</span>
+<span class="nc" id="L250">        sb.append(&quot;\n&quot;);</span>
+<span class="nc" id="L251">        sb.append(&quot;\tOptimization Successors&quot;).append(this.optimizingSuccessors);</span>
+<span class="nc" id="L252">        return sb.toString();</span>
+    }
+
+    /**
+     * Tries to lock the current MOSI.
+     * 
+     * @return Whether the MOSI has been locked or not.
+     */
+    public boolean tryToLock() {
+        // System.out.println(&quot;[MOSI] trylock &quot;+ this.hashCode() + &quot;(&quot;+l.getHoldCount()+&quot;)&quot;);
+        try {
+<span class="nc" id="L263">            return this.l.tryLock(1, TimeUnit.MILLISECONDS);</span>
+<span class="nc" id="L264">        } catch (InterruptedException ie) {</span>
+<span class="nc" id="L265">            return false;</span>
+        }
+    }
+
+    /**
+     * Locks.
+     */
+    public void lock() {
+        // System.out.println(&quot;[MOSI] Aquiring lock &quot;+ this.hashCode() + &quot;(&quot;+l.getHoldCount()+&quot;)&quot;);
+<span class="nc" id="L274">        this.l.lock();</span>
+<span class="nc" id="L275">    }</span>
+
+    /**
+     * Unlocks.
+     */
+    public void unlock() {
+<span class="nc" id="L281">        this.l.unlock();</span>
+        // System.out.println(&quot;[MOSI] Unlock &quot;+ this.hashCode()+ &quot;(&quot;+l.getHoldCount()+&quot;)&quot;);
+<span class="nc" id="L283">    }</span>
+
+    /**
+     * Returns the number of locks.
+     * 
+     * @return Number of locks.
+     */
+    public int getLockCount() {
+<span class="nc" id="L291">        return this.l.getHoldCount();</span>
+    }
+
+    /**
+     * Completely unlocks.
+     */
+    public void unlockCompletely() {
+        // System.out.println(&quot;[MOSI] Unlock compleately &quot;+ this.hashCode());
+<span class="nc bnc" id="L299" title="All 2 branches missed.">        while (this.l.getHoldCount() &gt; 1) {</span>
+<span class="nc" id="L300">            this.l.unlock();</span>
+        }
+<span class="nc" id="L302">    }</span>
+
+    /**
+     * Marks as scheduled.
+     */
+    public void scheduled() {
+<span class="fc" id="L308">        this.scheduled = true;</span>
+<span class="fc" id="L309">    }</span>
+
+    /**
+     * Unschedules the MOSI.
+     */
+    public void unscheduled() {
+<span class="nc" id="L315">        this.scheduled = false;</span>
+<span class="nc" id="L316">        this.resourcePredecessors.clear();</span>
+<span class="nc" id="L317">        this.resourceSuccessors.clear();</span>
+<span class="nc" id="L318">    }</span>
+
+    /**
+     * Returns whether the MOSI has been scheduled or not.
+     * 
+     * @return {@literal true} if the MOSI has been scheduled, {@literal false} otherwise.
+     */
+    boolean isScheduled() {
+<span class="nc" id="L326">        return this.scheduled;</span>
+    }
+
+    /**
+     * Marks the MOSI as in optimization state.
+     * 
+     * @param b Whether the MOSI is in optimization state or not.
+     */
+    public void setOnOptimization(boolean b) {
+<span class="fc" id="L335">        this.onOptimization = b;</span>
+<span class="fc" id="L336">    }</span>
+
+    /**
+     * Returns whether the MOSI is in optimization state or not.
+     * 
+     * @return {@literal true} if the MOSI is in optimization state, {@literal false} otherwise.
+     */
+    public boolean isOnOptimization() {
+<span class="nc" id="L344">        return this.onOptimization;</span>
+    }
+
+    /**
+     * Marks the MOSI to re-schedule.
+     * 
+     * @param b Whether the MOSI must be re-scheduled or not.
+     */
+    public void setToReschedule(boolean b) {
+<span class="nc" id="L353">        this.toReschedule = b;</span>
+<span class="nc" id="L354">    }</span>
+
+    /**
+     * Returns whether the MOSI has to be re-scheduled or not.
+     * 
+     * @return {@literal true} if the MOSI has to be re-scheduled, {@literal false} otherwise.
+     */
+    public boolean isToReschedule() {
+<span class="nc" id="L362">        return this.toReschedule;</span>
+    }
+
+    /**
+     * Adds a new optimizing successor.
+     * 
+     * @param action New optimizing successor.
+     */
+    public void addOptimizingSuccessor(AllocatableAction action) {
+<span class="nc" id="L371">        this.optimizingSuccessors.add(action);</span>
+<span class="nc" id="L372">    }</span>
+
+    /**
+     * Removes the given optimizing successor.
+     * 
+     * @param action Optmizing successor to remove.
+     */
+    public void removeOptimizingSuccessor(AllocatableAction action) {
+<span class="nc" id="L380">        this.optimizingSuccessors.remove(action);</span>
+<span class="nc" id="L381">    }</span>
+
+    /**
+     * Returns the list of optimizing successors.
+     * 
+     * @return The list of optimizing successors.
+     */
+    public List&lt;AllocatableAction&gt; getOptimizingSuccessors() {
+<span class="nc" id="L389">        return this.optimizingSuccessors;</span>
+    }
+
+    /**
+     * Clears the list of optimizing successors.
+     */
+    public void clearOptimizingSuccessors() {
+<span class="nc" id="L396">        this.optimizingSuccessors.clear();</span>
+<span class="nc" id="L397">    }</span>
+
+    /**
+     * Adds a new gap.
+     */
+    public void addGap() {
+<span class="nc" id="L403">        this.openGaps++;</span>
+<span class="nc" id="L404">    }</span>
+
+    /**
+     * Removes a gap.
+     */
+    public void removeGap() {
+<span class="nc" id="L410">        this.openGaps--;</span>
+<span class="nc" id="L411">    }</span>
+
+    /**
+     * Clears all the current gaps.
+     */
+    public void clearGaps() {
+<span class="nc" id="L417">        this.openGaps = 0;</span>
+<span class="nc" id="L418">    }</span>
+
+    /**
+     * Returns whether there are gaps or not.
+     * 
+     * @return {@literal true} if there are open gaps, {@literal false} otherwise.
+     */
+    public boolean hasGaps() {
+<span class="nc bnc" id="L426" title="All 2 branches missed.">        return this.openGaps &gt; 0;</span>
+    }
+
+    /**
+     * Returns the number of open gaps.
+     * 
+     * @return The number of open gaps.
+     */
+    public int getGapCount() {
+<span class="nc" id="L435">        return this.openGaps;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

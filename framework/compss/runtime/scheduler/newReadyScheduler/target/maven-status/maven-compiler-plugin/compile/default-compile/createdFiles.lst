@@ -1,0 +1,6 @@
+es/bsc/compss/scheduler/readynew/ReadyScheduler$AddRunnable.class
+es/bsc/compss/scheduler/readynew/ReadyScheduler$UpdateRunnable.class
+es/bsc/compss/scheduler/readynew/ReadyScheduler$WaitSchedulingRunnable.class
+es/bsc/compss/scheduler/readynew/ReadyScheduler$RemoveRunnable.class
+es/bsc/compss/scheduler/readynew/ReadyResourceScheduler.class
+es/bsc/compss/scheduler/readynew/ReadyScheduler.class

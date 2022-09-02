@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Gap.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">COMPSs Scheduler Full Graph Multi-Objetive</a> &gt; <a href="index.source.html" class="el_package">es.bsc.compss.scheduler.multiobjective.types</a> &gt; <span class="el_source">Gap.java</span></div><h1>Gap.java</h1><pre class="source lang-java linenums">/*
+ *  Copyright 2002-2021 Barcelona Supercomputing Center (www.bsc.es)
+ *
+ *  Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ */
+package es.bsc.compss.scheduler.multiobjective.types;
+
+import es.bsc.compss.scheduler.types.AllocatableAction;
+import es.bsc.compss.types.resources.ResourceDescription;
+
+
+public class Gap {
+
+    private final long initialTime;
+    private long endTime;
+    private final AllocatableAction origin;
+    private final ResourceDescription resources;
+    private final int capacity;
+
+
+    /**
+     * Creates a new Gap instance.
+     * 
+     * @param start Start time.
+     * @param endTime End time.
+     * @param origin Gap origin action.
+     * @param resources Gap resource.
+     * @param capacity Gap capacity.
+     */
+<span class="fc" id="L41">    public Gap(long start, long endTime, AllocatableAction origin, ResourceDescription resources, int capacity) {</span>
+<span class="fc" id="L42">        this.initialTime = start;</span>
+<span class="fc" id="L43">        this.endTime = endTime;</span>
+<span class="fc" id="L44">        this.origin = origin;</span>
+<span class="fc" id="L45">        this.resources = resources;</span>
+<span class="fc" id="L46">        this.capacity = capacity;</span>
+<span class="fc" id="L47">    }</span>
+
+    /**
+     * Returns the initial time.
+     * 
+     * @return The initial time.
+     */
+    public long getInitialTime() {
+<span class="nc" id="L55">        return this.initialTime;</span>
+    }
+
+    /**
+     * Returns the end time.
+     * 
+     * @return The end time.
+     */
+    public long getEndTime() {
+<span class="nc" id="L64">        return this.endTime;</span>
+    }
+
+    /**
+     * Returns the origin of the gap.
+     * 
+     * @return The origin of the gap.
+     */
+    public AllocatableAction getOrigin() {
+<span class="fc" id="L73">        return this.origin;</span>
+    }
+
+    /**
+     * Returns the gap resources.
+     * 
+     * @return The gap resources.
+     */
+    public ResourceDescription getResources() {
+<span class="fc" id="L82">        return this.resources;</span>
+    }
+
+    /**
+     * Sets a new end time.
+     * 
+     * @param endTime New end time.
+     */
+    public void setEndTime(long endTime) {
+<span class="nc" id="L91">        this.endTime = endTime;</span>
+<span class="nc" id="L92">    }</span>
+
+    /**
+     * Returns the gap capacity.
+     * 
+     * @return The gap capacity.
+     */
+    public int getCapacity() {
+<span class="nc" id="L100">        return this.capacity;</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="nc" id="L105">        return &quot;&lt;&quot; + this.initialTime + &quot;-&gt;&quot; + this.endTime + &quot;, &quot; + this.origin + &quot;, &quot;</span>
+<span class="nc" id="L106">            + this.resources.getDynamicDescription() + &quot;, with &quot; + this.capacity + &quot; slots &gt;&quot;;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

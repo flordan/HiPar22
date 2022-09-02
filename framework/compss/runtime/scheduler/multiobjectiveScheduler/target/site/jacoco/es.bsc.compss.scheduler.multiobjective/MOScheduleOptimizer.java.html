@@ -1,0 +1,374 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MOScheduleOptimizer.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">COMPSs Scheduler Full Graph Multi-Objetive</a> &gt; <a href="index.source.html" class="el_package">es.bsc.compss.scheduler.multiobjective</a> &gt; <span class="el_source">MOScheduleOptimizer.java</span></div><h1>MOScheduleOptimizer.java</h1><pre class="source lang-java linenums">/*
+ *  Copyright 2002-2021 Barcelona Supercomputing Center (www.bsc.es)
+ *
+ *  Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ */
+package es.bsc.compss.scheduler.multiobjective;
+
+import es.bsc.compss.components.impl.ResourceScheduler;
+import es.bsc.compss.log.Loggers;
+import es.bsc.compss.scheduler.exceptions.ActionNotFoundException;
+import es.bsc.compss.scheduler.exceptions.BlockedActionException;
+import es.bsc.compss.scheduler.exceptions.InvalidSchedulingException;
+import es.bsc.compss.scheduler.exceptions.UnassignedActionException;
+import es.bsc.compss.scheduler.multiobjective.types.MOScore;
+import es.bsc.compss.scheduler.multiobjective.types.OptimizationWorker;
+import es.bsc.compss.scheduler.types.AllocatableAction;
+import es.bsc.compss.scheduler.types.Score;
+import es.bsc.compss.types.implementations.Implementation;
+import es.bsc.compss.types.resources.WorkerResourceDescription;
+import es.bsc.compss.util.SchedulingOptimizer;
+
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.ConcurrentModificationException;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.PriorityQueue;
+import java.util.concurrent.Semaphore;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+
+public class MOScheduleOptimizer extends SchedulingOptimizer&lt;MOScheduler&gt; {
+
+    // Logger
+<span class="nc" id="L49">    protected static final Logger LOGGER = LogManager.getLogger(Loggers.TS_COMP);</span>
+    protected static final String LOG_PREFIX = &quot;[MOScheduleOptimizer] &quot;;
+
+    // Optimization threshold
+<span class="nc" id="L53">    private static long OPTIMIZATION_THRESHOLD = 1_000;</span>
+
+<span class="nc" id="L55">    private boolean stop = false;</span>
+<span class="nc" id="L56">    private Semaphore sem = new Semaphore(0);</span>
+
+
+    /**
+     * Creates a new MOSchedulerOptimizer instance.
+     * 
+     * @param scheduler Associated MOScheduler.
+     */
+    public MOScheduleOptimizer(MOScheduler scheduler) {
+<span class="nc" id="L65">        super(scheduler);</span>
+<span class="nc" id="L66">    }</span>
+
+    @Override
+    public void run() {
+<span class="nc" id="L70">        long lastUpdate = System.currentTimeMillis();</span>
+        try {
+<span class="nc" id="L72">            Thread.sleep(500);</span>
+<span class="nc" id="L73">        } catch (InterruptedException ie) {</span>
+            // Do nothing
+<span class="nc" id="L75">        }</span>
+<span class="nc bnc" id="L76" title="All 2 branches missed.">        while (!this.stop) {</span>
+<span class="nc" id="L77">            long optimizationTS = System.currentTimeMillis();</span>
+<span class="nc" id="L78">            Collection&lt;ResourceScheduler&lt;? extends WorkerResourceDescription&gt;&gt; workers = this.scheduler.getWorkers();</span>
+<span class="nc" id="L79">            globalOptimization(optimizationTS, workers);</span>
+<span class="nc" id="L80">            lastUpdate = optimizationTS;</span>
+<span class="nc" id="L81">            waitForNextIteration(lastUpdate);</span>
+<span class="nc" id="L82">        }</span>
+<span class="nc" id="L83">        this.sem.release();</span>
+<span class="nc" id="L84">    }</span>
+
+    @Override
+    public void shutdown() {
+<span class="nc" id="L88">        this.stop = true;</span>
+<span class="nc" id="L89">        this.interrupt();</span>
+        try {
+<span class="nc" id="L91">            this.sem.acquire();</span>
+<span class="nc" id="L92">        } catch (InterruptedException ie) {</span>
+            // Do nothing
+<span class="nc" id="L94">        }</span>
+<span class="nc" id="L95">    }</span>
+
+    private void waitForNextIteration(long lastUpdate) {
+<span class="nc" id="L98">        long difference = OPTIMIZATION_THRESHOLD - (System.currentTimeMillis() - lastUpdate);</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">        if (difference &gt; 0) {</span>
+            try {
+<span class="nc" id="L101">                Thread.sleep(difference);</span>
+<span class="nc" id="L102">            } catch (InterruptedException ie) {</span>
+<span class="nc" id="L103">                Thread.currentThread().interrupt();</span>
+<span class="nc" id="L104">            }</span>
+        }
+<span class="nc" id="L106">    }</span>
+
+    /*--------------------------------------------------
+     ---------------------------------------------------
+     --------------- Local  optimization ---------------
+     ---------------------------------------------------
+     --------------------------------------------------*/
+
+    /**
+     * Performs a global optimization.
+     * 
+     * @param optimizationTS Optimization time stamp.
+     * @param workers Available workers.
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public void globalOptimization(long optimizationTS,
+        Collection&lt;ResourceScheduler&lt;? extends WorkerResourceDescription&gt;&gt; workers) {
+
+<span class="nc" id="L124">        LOGGER.debug(LOG_PREFIX + &quot; --- Start Global Optimization ---&quot;);</span>
+<span class="nc" id="L125">        int workersCount = workers.size();</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">        if (workersCount == 0) {</span>
+<span class="nc" id="L127">            return;</span>
+        }
+<span class="nc" id="L129">        OptimizationWorker[] optimizedWorkers = new OptimizationWorker[workersCount];</span>
+<span class="nc" id="L130">        LinkedList&lt;OptimizationWorker&gt; receivers = new LinkedList&lt;&gt;();</span>
+<span class="nc" id="L131">        int i = 0;</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">        for (ResourceScheduler&lt;? extends WorkerResourceDescription&gt; worker : workers) {</span>
+<span class="nc" id="L133">            optimizedWorkers[i] = new OptimizationWorker((MOResourceScheduler&lt;WorkerResourceDescription&gt;) worker);</span>
+<span class="nc" id="L134">            i++;</span>
+<span class="nc" id="L135">        }</span>
+
+<span class="nc" id="L137">        boolean hasDonated = true;</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        while (hasDonated) {</span>
+<span class="nc" id="L139">            optimizationTS = System.currentTimeMillis();</span>
+<span class="nc" id="L140">            hasDonated = false;</span>
+<span class="nc" id="L141">            LOGGER.debug(LOG_PREFIX + &quot; --- Iteration of global Optimization ---&quot;);</span>
+            // Perform local optimizations
+<span class="nc bnc" id="L143" title="All 2 branches missed.">            for (OptimizationWorker ow : optimizedWorkers) {</span>
+<span class="nc" id="L144">                LOGGER.debug(LOG_PREFIX + &quot;Optimizing localy resource &quot; + ow.getName());</span>
+<span class="nc" id="L145">                ow.localOptimization(optimizationTS);</span>
+<span class="nc" id="L146">                LOGGER.debug(LOG_PREFIX + &quot;Resource &quot; + ow.getName() + &quot; will end at &quot; + ow.getDonationIndicator());</span>
+            }
+
+<span class="nc" id="L149">            LinkedList&lt;OptimizationWorker&gt; donors = determineDonorAndReceivers(optimizedWorkers, receivers);</span>
+
+<span class="nc bnc" id="L151" title="All 4 branches missed.">            while (!hasDonated &amp;&amp; !donors.isEmpty()) {</span>
+<span class="nc" id="L152">                OptimizationWorker donor = donors.remove();</span>
+                AllocatableAction candidate;
+<span class="nc bnc" id="L154" title="All 4 branches missed.">                while (!hasDonated &amp;&amp; (candidate = donor.pollDonorAction()) != null) {</span>
+                    /*
+                     * if (candidate == null) { break; }
+                     */
+<span class="nc" id="L158">                    Iterator&lt;OptimizationWorker&gt; recIt = receivers.iterator();</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">                    while (recIt.hasNext()) {</span>
+<span class="nc" id="L160">                        OptimizationWorker receiver = recIt.next();</span>
+<span class="nc bnc" id="L161" title="All 2 branches missed.">                        if (move(candidate, donor, receiver)) {</span>
+<span class="nc" id="L162">                            hasDonated = true;</span>
+<span class="nc" id="L163">                            break;</span>
+                        }
+<span class="nc" id="L165">                    }</span>
+<span class="nc" id="L166">                }</span>
+<span class="nc" id="L167">            }</span>
+<span class="nc" id="L168">            LOGGER.debug(LOG_PREFIX + &quot;--- Optimization Iteration finished ---&quot;);</span>
+<span class="nc" id="L169">        }</span>
+<span class="nc" id="L170">        LOGGER.debug(LOG_PREFIX + &quot;--- Global Optimization finished ---&quot;);</span>
+<span class="nc" id="L171">    }</span>
+
+    /**
+     * Determines the task donors and receivers.
+     * 
+     * @param workers List of optimization workers.
+     * @param receivers List of receivers.
+     * @return List of donors.
+     */
+    public static LinkedList&lt;OptimizationWorker&gt; determineDonorAndReceivers(OptimizationWorker[] workers,
+        LinkedList&lt;OptimizationWorker&gt; receivers) {
+
+<span class="nc" id="L183">        receivers.clear();</span>
+<span class="nc" id="L184">        PriorityQueue&lt;OptimizationWorker&gt; receiversPQ =</span>
+<span class="nc" id="L185">            new PriorityQueue&lt;OptimizationWorker&gt;(1, getReceptionComparator());</span>
+<span class="nc" id="L186">        long topIndicator = Long.MIN_VALUE;</span>
+<span class="nc" id="L187">        LinkedList&lt;OptimizationWorker&gt; top = new LinkedList&lt;&gt;();</span>
+
+<span class="nc bnc" id="L189" title="All 2 branches missed.">        for (OptimizationWorker ow : workers) {</span>
+<span class="nc" id="L190">            long indicator = ow.getDonationIndicator();</span>
+<span class="nc bnc" id="L191" title="All 2 branches missed.">            if (topIndicator &gt; indicator) {</span>
+<span class="nc" id="L192">                receiversPQ.add(ow);</span>
+            } else {
+<span class="nc bnc" id="L194" title="All 2 branches missed.">                if (indicator &gt; topIndicator) {</span>
+<span class="nc" id="L195">                    topIndicator = indicator;</span>
+<span class="nc bnc" id="L196" title="All 2 branches missed.">                    for (OptimizationWorker extop : top) {</span>
+<span class="nc" id="L197">                        receiversPQ.add(extop);</span>
+<span class="nc" id="L198">                    }</span>
+<span class="nc" id="L199">                    top.clear();</span>
+                }
+<span class="nc" id="L201">                top.add(ow);</span>
+            }
+        }
+        OptimizationWorker ow;
+<span class="nc bnc" id="L205" title="All 2 branches missed.">        while ((ow = receiversPQ.poll()) != null) {</span>
+<span class="nc" id="L206">            receivers.add(ow);</span>
+        }
+<span class="nc" id="L208">        return top;</span>
+    }
+
+    /*--------------------------------------------------
+     ---------------------------------------------------
+     ----------- Comparators  optimization -------------
+     ---------------------------------------------------
+     --------------------------------------------------*/
+
+    /**
+     * Returns a selection comparator.
+     * 
+     * @return A selection comparator.
+     */
+    public static Comparator&lt;AllocatableAction&gt; getSelectionComparator() {
+<span class="nc" id="L223">        return new Comparator&lt;AllocatableAction&gt;() {</span>
+
+            @Override
+            public int compare(AllocatableAction action1, AllocatableAction action2) {
+<span class="nc" id="L227">                int priority = Integer.compare(action1.getPriority(), action2.getPriority());</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">                if (priority == 0) {</span>
+<span class="nc" id="L229">                    return Long.compare(action1.getId(), action2.getId());</span>
+                } else {
+<span class="nc" id="L231">                    return -priority;</span>
+                }
+            }
+        };
+    }
+
+    /**
+     * Returns a donation comparator.
+     * 
+     * @return A donation comparator.
+     */
+    public static Comparator&lt;AllocatableAction&gt; getDonationComparator() {
+<span class="nc" id="L243">        return new Comparator&lt;AllocatableAction&gt;() {</span>
+
+            @Override
+            public int compare(AllocatableAction action1, AllocatableAction action2) {
+<span class="nc" id="L247">                MOSchedulingInformation action1DSI = (MOSchedulingInformation) action1.getSchedulingInfo();</span>
+<span class="nc" id="L248">                MOSchedulingInformation action2DSI = (MOSchedulingInformation) action2.getSchedulingInfo();</span>
+<span class="nc" id="L249">                int priority = Long.compare(action2DSI.getExpectedEnd(), action1DSI.getExpectedEnd());</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">                if (priority == 0) {</span>
+<span class="nc" id="L251">                    return Long.compare(action1.getId(), action2.getId());</span>
+                } else {
+<span class="nc" id="L253">                    return priority;</span>
+                }
+            }
+        };
+    }
+
+    /**
+     * Returns a reception comparator.
+     * 
+     * @return A reception comparator.
+     */
+    public static final Comparator&lt;OptimizationWorker&gt; getReceptionComparator() {
+<span class="nc" id="L265">        return new Comparator&lt;OptimizationWorker&gt;() {</span>
+
+            @Override
+            public int compare(OptimizationWorker worker1, OptimizationWorker worker2) {
+<span class="nc" id="L269">                return Long.compare(worker1.getDonationIndicator(), worker2.getDonationIndicator());</span>
+            }
+        };
+    }
+
+    private boolean move(AllocatableAction action, OptimizationWorker donor, OptimizationWorker receiver) {
+<span class="nc" id="L275">        LOGGER</span>
+<span class="nc" id="L276">            .debug(LOG_PREFIX + &quot;Trying to move &quot; + action + &quot; from &quot; + donor.getName() + &quot; to &quot; + receiver.getName());</span>
+<span class="nc" id="L277">        List&lt;AllocatableAction&gt; dataPreds = action.getDataPredecessors();</span>
+<span class="nc" id="L278">        long dataAvailable = 0;</span>
+        try {
+<span class="nc bnc" id="L280" title="All 2 branches missed.">            for (AllocatableAction dataPred : dataPreds) {</span>
+<span class="nc" id="L281">                MOSchedulingInformation dsi = (MOSchedulingInformation) dataPred.getSchedulingInfo();</span>
+<span class="nc" id="L282">                dataAvailable = Math.max(dataAvailable, dsi.getExpectedEnd());</span>
+<span class="nc" id="L283">            }</span>
+<span class="nc" id="L284">        } catch (ConcurrentModificationException cme) {</span>
+<span class="nc" id="L285">            dataAvailable = 0;</span>
+<span class="nc" id="L286">            dataPreds = action.getDataPredecessors();</span>
+<span class="nc" id="L287">        }</span>
+
+<span class="nc" id="L289">        Implementation bestImpl = null;</span>
+
+<span class="nc" id="L291">        List&lt;Implementation&gt; impls = action.getCompatibleImplementations(receiver.getResource());</span>
+
+<span class="nc" id="L293">        Score bestScore = null;</span>
+<span class="nc bnc" id="L294" title="All 2 branches missed.">        for (Implementation impl : impls) {</span>
+<span class="nc" id="L295">            MOScore actionScore = MOScheduler.getActionScore(action);</span>
+<span class="nc" id="L296">            MOScore score = ((MOResourceScheduler&lt;?&gt;) (receiver.getResource())).generateMoveImplementationScore(action,</span>
+                null, impl, actionScore, (long) (OPTIMIZATION_THRESHOLD * 2.5));
+<span class="nc bnc" id="L298" title="All 2 branches missed.">            if (Score.isBetter(score, bestScore)) {</span>
+<span class="nc" id="L299">                bestImpl = impl;</span>
+<span class="nc" id="L300">                bestScore = score;</span>
+            }
+<span class="nc" id="L302">        }</span>
+<span class="nc" id="L303">        Implementation currentImpl = action.getAssignedImplementation();</span>
+<span class="nc" id="L304">        MOScore actionScore = MOScheduler.getActionScore(action);</span>
+<span class="nc" id="L305">        LOGGER.debug(LOG_PREFIX + &quot;Calculating score for current execution&quot;);</span>
+<span class="nc" id="L306">        MOScore currentScore = ((MOResourceScheduler&lt;?&gt;) (action.getAssignedResource()))</span>
+<span class="nc" id="L307">            .generateCurrentImplementationScore(action, currentImpl, actionScore);</span>
+<span class="nc" id="L308">        LOGGER.debug(LOG_PREFIX + &quot;Comparing scores: \n\t (New best)&quot; + bestScore + &quot;\n\t (Current&quot; + currentScore);</span>
+<span class="nc bnc" id="L309" title="All 4 branches missed.">        if (bestImpl != null &amp;&amp; Score.isBetter(bestScore, currentScore)) {</span>
+            try {
+<span class="nc" id="L311">                LOGGER</span>
+<span class="nc" id="L312">                    .debug(LOG_PREFIX + &quot;Moving &quot; + action + &quot; from &quot; + donor.getName() + &quot; to &quot; + receiver.getName());</span>
+<span class="nc" id="L313">                unscheduleFromWorker(action);</span>
+<span class="nc" id="L314">                scheduleOnWorker(action, bestImpl, receiver);</span>
+<span class="nc" id="L315">            } catch (ActionNotFoundException anfe) {</span>
+                // Action was already moved from the resource. Recompute Optimizations!!!
+<span class="nc" id="L317">            }</span>
+<span class="nc" id="L318">            return true;</span>
+        } else {
+<span class="nc" id="L320">            LOGGER.debug(LOG_PREFIX + &quot;Action &quot; + action + &quot; not moved because new position is not better than actual&quot;);</span>
+        }
+<span class="nc" id="L322">        return false;</span>
+    }
+
+    /**
+     * Schedules the given action with the given implementation in the given worker.
+     * 
+     * @param action Action to perform.
+     * @param impl Action's implementation.
+     * @param ow Selected worker.
+     */
+    public void scheduleOnWorker(AllocatableAction action, Implementation impl, OptimizationWorker ow) {
+<span class="nc" id="L333">        boolean failedSpecificScheduling = false;</span>
+        try {
+<span class="nc" id="L335">            action.schedule(ow.getResource(), impl);</span>
+            try {
+<span class="nc" id="L337">                action.tryToLaunch();</span>
+<span class="nc" id="L338">            } catch (InvalidSchedulingException ise) {</span>
+<span class="nc" id="L339">                failedSpecificScheduling = true;</span>
+<span class="nc" id="L340">            }</span>
+<span class="nc" id="L341">        } catch (BlockedActionException bae) {</span>
+            // Can not happen since there was an original source
+<span class="nc" id="L343">        } catch (UnassignedActionException be) {</span>
+<span class="nc" id="L344">            failedSpecificScheduling = true;</span>
+<span class="nc" id="L345">        }</span>
+
+<span class="nc bnc" id="L347" title="All 2 branches missed.">        if (failedSpecificScheduling) {</span>
+            try {
+<span class="nc" id="L349">                long dataTime = MOScore.getDataPredecessorTime(action.getDataPredecessors());</span>
+<span class="nc" id="L350">                Score aScore = new MOScore(action.getPriority(), action.getGroupPriority(), dataTime, 0, 0, 0, 0);</span>
+<span class="nc" id="L351">                action.schedule(aScore);</span>
+                try {
+<span class="nc" id="L353">                    action.tryToLaunch();</span>
+<span class="nc" id="L354">                } catch (InvalidSchedulingException ise2) {</span>
+                    // Impossible exception if schedule method on action is ok.
+<span class="nc" id="L356">                }</span>
+<span class="nc" id="L357">            } catch (BlockedActionException | UnassignedActionException be) {</span>
+                // Can not happen since there was an original source
+<span class="nc" id="L359">            }</span>
+        }
+<span class="nc" id="L361">    }</span>
+
+    /**
+     * Unschedule the given action from its worker.
+     * 
+     * @param action Action to unschedule.
+     * @throws ActionNotFoundException When the action is not registered.
+     */
+    public void unscheduleFromWorker(AllocatableAction action) throws ActionNotFoundException {
+<span class="nc" id="L370">        MOResourceScheduler&lt;?&gt; resource = (MOResourceScheduler&lt;?&gt;) action.getAssignedResource();</span>
+<span class="nc" id="L371">        resource.unscheduleAction(action);</span>
+<span class="nc" id="L372">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

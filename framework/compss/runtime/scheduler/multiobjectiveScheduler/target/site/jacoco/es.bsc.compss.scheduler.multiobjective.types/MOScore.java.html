@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MOScore.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">COMPSs Scheduler Full Graph Multi-Objetive</a> &gt; <a href="index.source.html" class="el_package">es.bsc.compss.scheduler.multiobjective.types</a> &gt; <span class="el_source">MOScore.java</span></div><h1>MOScore.java</h1><pre class="source lang-java linenums">/*
+ *  Copyright 2002-2021 Barcelona Supercomputing Center (www.bsc.es)
+ *
+ *  Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ */
+package es.bsc.compss.scheduler.multiobjective.types;
+
+import es.bsc.compss.scheduler.multiobjective.MOSchedulingInformation;
+import es.bsc.compss.scheduler.multiobjective.config.MOConfiguration;
+import es.bsc.compss.scheduler.types.AllocatableAction;
+import es.bsc.compss.scheduler.types.Score;
+
+import java.util.List;
+
+
+public class MOScore extends Score {
+
+    /*
+     * actionScore -&gt; task Priority resourceScore -&gt; Expected Resource Availability expectedDataAvailable -&gt; expected
+     * time when data dependencies will be ready (take into account transfers) waitingScore --&gt; Expected time when the
+     * execution would start implementationScore -&gt; ExecutionTime expectedCost -&gt; Expected monetary cost of the
+     * execution expectedEnergy -&gt; Expected energy consumption of the execution
+     */
+    private final long expectedDataAvailable;
+    private final double expectedCost;
+    private final double expectedEnergy;
+
+
+    /**
+     * Creates a new score instance.
+     *
+     * @param priority The priority of the action.
+     * @param multiNodeGroupId The MultiNodeGroup Id of the action.
+     * @param resourceScore The score of the resource (e.g., number of data in that resource)
+     * @param dataAvailability Data availability score.
+     * @param execTime Implementation's execution time.
+     * @param energy Energy cost.
+     * @param cost Money cost.
+     */
+    public MOScore(long priority, long multiNodeGroupId, long resourceScore, long dataAvailability, long execTime,
+        double energy, double cost) {
+
+<span class="nc" id="L54">        super(priority, multiNodeGroupId, resourceScore, Math.max(resourceScore, dataAvailability), execTime);</span>
+
+<span class="nc" id="L56">        this.expectedDataAvailable = dataAvailability;</span>
+<span class="nc" id="L57">        this.expectedCost = cost;</span>
+<span class="nc" id="L58">        this.expectedEnergy = energy;</span>
+<span class="nc" id="L59">    }</span>
+
+    @Override
+    public boolean isBetterCustomValues(Score other) {
+<span class="nc" id="L63">        MOScore otherDS = (MOScore) other;</span>
+<span class="nc" id="L64">        double diffCost = this.expectedCost - otherDS.expectedCost;</span>
+<span class="nc" id="L65">        double diffEnergy = this.expectedEnergy - otherDS.expectedEnergy;</span>
+<span class="nc" id="L66">        long ownEnd = this.waitingScore + this.implementationScore;</span>
+<span class="nc" id="L67">        long otherEnd = otherDS.waitingScore + otherDS.implementationScore;</span>
+<span class="nc" id="L68">        long diffEnd = ownEnd - otherEnd;</span>
+<span class="nc bnc" id="L69" title="All 3 branches missed.">        switch (MOConfiguration.getSchedulerOptimization()) {</span>
+            case COST:
+<span class="nc bnc" id="L71" title="All 2 branches missed.">                if (diffCost == 0) {</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">                    if (diffEnd == 0) {</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">                        return diffEnergy &lt; 0;</span>
+                    } else {
+<span class="nc bnc" id="L75" title="All 2 branches missed.">                        return diffEnd &lt; 0;</span>
+                    }
+                } else {
+<span class="nc bnc" id="L78" title="All 2 branches missed.">                    return diffCost &lt; 0;</span>
+                }
+            case ENERGY:
+<span class="nc bnc" id="L81" title="All 2 branches missed.">                if (diffEnergy == 0) {</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">                    if (diffEnd == 0) {</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">                        return diffCost &lt; 0;</span>
+                    } else {
+<span class="nc bnc" id="L85" title="All 2 branches missed.">                        return diffEnd &lt; 0;</span>
+                    }
+                } else {
+<span class="nc bnc" id="L88" title="All 2 branches missed.">                    return diffEnergy &lt; 0;</span>
+                }
+            default:
+<span class="nc bnc" id="L91" title="All 2 branches missed.">                if (diffEnd == 0) {</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">                    if (diffEnergy == 0) {</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">                        return diffCost &lt; 0;</span>
+                    } else {
+<span class="nc bnc" id="L95" title="All 2 branches missed.">                        return diffEnergy &lt; 0;</span>
+                    }
+                } else {
+<span class="nc bnc" id="L98" title="All 2 branches missed.">                    return diffEnd &lt; 0;</span>
+                }
+        }
+    }
+
+    /**
+     * Returns the action score.
+     * 
+     * @param action Action
+     * @return Action score.
+     */
+    public static long getActionScore(AllocatableAction action) {
+<span class="nc" id="L110">        return action.getPriority();</span>
+    }
+
+    /**
+     * Returns the latest time of the data predecessors.
+     * 
+     * @param predecessors Action predecessors.
+     * @return Latest time of the action predecessors.
+     */
+    public static long getDataPredecessorTime(List&lt;AllocatableAction&gt; predecessors) {
+<span class="nc" id="L120">        long dataTime = 0;</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">        for (AllocatableAction pred : predecessors) {</span>
+<span class="nc" id="L122">            dataTime = Math.max(dataTime, ((MOSchedulingInformation) pred.getSchedulingInfo()).getExpectedEnd());</span>
+<span class="nc" id="L123">        }</span>
+<span class="nc" id="L124">        return dataTime;</span>
+    }
+
+    /**
+     * Returns the expected data available time.
+     * 
+     * @return The expected data available time.
+     */
+    public long getExpectedDataAvailable() {
+<span class="nc" id="L133">        return this.expectedDataAvailable;</span>
+    }
+
+    /**
+     * Returns the expected start time.
+     * 
+     * @return The expected start time.
+     */
+    public long getExpectedStart() {
+<span class="nc" id="L142">        return this.waitingScore;</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="nc" id="L147">        return &quot;[MOScore = [&quot; + &quot;Priority: &quot; + this.priority + &quot;, &quot; + &quot;MultiNodeGroupId: &quot; + this.actionGroupPriority</span>
+            + &quot;, &quot; + &quot;Resource: &quot; + this.resourceScore + &quot;, &quot; + &quot;Data Availability:&quot; + this.expectedDataAvailable + &quot;, &quot;
+            + &quot;Expected Start Timestamp:&quot; + this.waitingScore + &quot;, &quot; + &quot;Expected Execution Time:&quot;
+            + this.implementationScore + &quot;, &quot; + &quot;Expected Execution Consumption:&quot; + this.expectedEnergy + &quot;, &quot;
+            + &quot;Expected Execution Cost:&quot; + this.expectedCost + &quot;]&quot; + &quot;]&quot;;
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

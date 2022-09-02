@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MOScheduler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">COMPSs Scheduler Full Graph Multi-Objetive</a> &gt; <a href="index.source.html" class="el_package">es.bsc.compss.scheduler.multiobjective</a> &gt; <span class="el_source">MOScheduler.java</span></div><h1>MOScheduler.java</h1><pre class="source lang-java linenums">/*
+ *  Copyright 2002-2021 Barcelona Supercomputing Center (www.bsc.es)
+ *
+ *  Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ */
+package es.bsc.compss.scheduler.multiobjective;
+
+import es.bsc.compss.components.impl.ResourceScheduler;
+import es.bsc.compss.components.impl.TaskScheduler;
+import es.bsc.compss.scheduler.multiobjective.config.MOConfiguration;
+import es.bsc.compss.scheduler.multiobjective.types.MOProfile;
+import es.bsc.compss.scheduler.multiobjective.types.MOScore;
+import es.bsc.compss.scheduler.types.AllocatableAction;
+import es.bsc.compss.scheduler.types.Score;
+import es.bsc.compss.types.parameter.Parameter;
+import es.bsc.compss.types.resources.Worker;
+import es.bsc.compss.types.resources.WorkerResourceDescription;
+import es.bsc.compss.util.ResourceOptimizer;
+import es.bsc.compss.util.SchedulingOptimizer;
+
+import java.util.List;
+
+import org.json.JSONObject;
+
+
+public class MOScheduler extends TaskScheduler {
+
+    /**
+     * Creates a new MOScheduler.
+     */
+<span class="nc" id="L42">    public MOScheduler() {</span>
+<span class="nc" id="L43">        MOConfiguration.load();</span>
+<span class="nc" id="L44">    }</span>
+
+    @Override
+    public void customSchedulerShutdown() {
+        /*
+         * Collection&lt;ResourceScheduler&lt;? extends WorkerResourceDescription&gt;&gt; workers = this.getWorkers();
+         * System.out.println(&quot;End Profiles:&quot;); for (ResourceScheduler&lt;?&gt; worker : workers) { System.out.println(&quot;\t&quot; +
+         * worker.getName()); for (int coreId = 0; coreId &lt; CoreManager.getCoreCount(); coreId++) { for (Implementation
+         * impl : CoreManager.getCoreImplementations(coreId)) { System.out.println(&quot;\t\t&quot; +
+         * CoreManager.getSignature(coreId, impl.getImplementationId())); MOProfile profile = (MOProfile)
+         * worker.getProfile(impl); System.out.println(&quot;\t\t\tTime &quot; + profile.getAverageExecutionTime() + &quot; ms&quot;);
+         * System.out.println(&quot;\t\t\tPower &quot; + profile.getPower() + &quot; W&quot;); System.out.println(&quot;\t\t\tCost &quot; +
+         * profile.getPrice() + &quot; €&quot;); } } }
+         */
+<span class="nc" id="L58">    }</span>
+
+    @Override
+    public MOProfile generateProfile(JSONObject json) {
+<span class="nc" id="L62">        return new MOProfile(json);</span>
+    }
+
+    @Override
+    public &lt;T extends WorkerResourceDescription&gt; MOResourceScheduler&lt;T&gt; generateSchedulerForResource(Worker&lt;T&gt; w,
+        JSONObject res, JSONObject impls) {
+
+        // LOGGER.debug(&quot;[LoadBalancingScheduler] Generate scheduler for resource &quot; + w.getName());
+<span class="nc" id="L70">        return new MOResourceScheduler&lt;&gt;(w, res, impls);</span>
+    }
+
+    @Override
+    public &lt;T extends WorkerResourceDescription&gt; MOSchedulingInformation generateSchedulingInformation(
+        ResourceScheduler&lt;T&gt; enforcedTargetResource, List&lt;Parameter&gt; params, Integer coreId) {
+
+<span class="nc" id="L77">        return new MOSchedulingInformation(enforcedTargetResource);</span>
+    }
+
+    @Override
+    public Score generateActionScore(AllocatableAction action) {
+<span class="nc" id="L82">        return getActionScore(action);</span>
+    }
+
+    /**
+     * Returns the action score of the given action.
+     * 
+     * @param action Action to evaluate.
+     * @return The action score.
+     */
+    public static MOScore getActionScore(AllocatableAction action) {
+<span class="nc" id="L92">        long dataTime = MOScore.getDataPredecessorTime(action.getDataPredecessors());</span>
+<span class="nc" id="L93">        return new MOScore(action.getPriority(), action.getGroupPriority(), dataTime, 0, 0, 0, 0);</span>
+    }
+
+    @Override
+    public ResourceOptimizer generateResourceOptimizer() {
+<span class="nc" id="L98">        return new MOResourceOptimizer(this);</span>
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    @Override
+    public &lt;T extends TaskScheduler&gt; SchedulingOptimizer&lt;T&gt; generateSchedulingOptimizer() {
+<span class="nc" id="L104">        return (SchedulingOptimizer&lt;T&gt;) new MOScheduleOptimizer(this);</span>
+    }
+
+    /**
+     * Notifies to the scheduler that some actions have become free of data dependencies or resource dependencies.
+     *
+     * @param dataFreeActions IN, list of actions free of data dependencies
+     * @param resourceFreeActions IN, list of actions free of resource dependencies
+     * @param blockedCandidates OUT, list of blocked candidates
+     * @param resource Resource where the previous task was executed
+     */
+    @Override
+    public &lt;T extends WorkerResourceDescription&gt; void handleDependencyFreeActions(
+        List&lt;AllocatableAction&gt; dataFreeActions, List&lt;AllocatableAction&gt; resourceFreeActions,
+        List&lt;AllocatableAction&gt; blockedCandidates, ResourceScheduler&lt;T&gt; resource) {
+
+<span class="nc" id="L120">        LOGGER.debug(&quot;[MOScheduler] Treating dependency free actions on resource &quot; + resource.getName());</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">        for (AllocatableAction freeAction : dataFreeActions) {</span>
+<span class="nc" id="L122">            tryToLaunch(freeAction);</span>
+<span class="nc" id="L123">        }</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">        for (AllocatableAction freeAction : resourceFreeActions) {</span>
+<span class="nc" id="L125">            tryToLaunch(freeAction);</span>
+<span class="nc" id="L126">        }</span>
+<span class="nc" id="L127">    }</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

@@ -32,19 +32,24 @@ The `recursive_matmul_flat.py` file is the source code for the `FLAT` version of
 Conversely, the `NESTED` version, whose code can be found in the `recursive_matmul_paths.py` file, creates a workflow hierarchy leveraging on the recursivity of the application by converting into tasks EVERY multiplication of matrices and the addition of their results.
 
 # Test Execution
-To launch the application, users can directly call the `launch` script within the test folder passing in the indicated parameters for the version.
+To launch the application, users can directly call the `launch` script within the test folder passing in the indicated parameters for the version which are:
+- NUM_MATMULS: number of matrix multiplications launched subsequently
+- MATRIX_SIZE: number of elements per dimension of the matrices (the paper uses 56,536)
+- BLOCK_SIZE: number of elements per dimension of the blocks composing the matrices (the paper uses 4,096)
+- RECURSIVE_SPLIT: numer of parts per dimension into which the matrices are split on each recursive step (the paper uses 2, 4, and 16)
+
 ```bash
-> launch <FLAT|NESTED> [MATRIX_SIZE [BLOCK_SIZE [RECURSIVE_SPLIT]]]
+> launch <FLAT|NESTED> [NUM_MODELS [MATRIX_SIZE [BLOCK_SIZE [RECURSIVE_SPLIT]]]]
 ```
 
 Otherwise, the user can use the `launch_test` script in the root folder of the repository or the container passing in `random_forest` as the first parameter . Both ways end up calling the launch script removing the application name.
 ```bash
-> launch_test random_forest <FLAT|NESTED> [MATRIX_SIZE [BLOCK_SIZE [RECURSIVE_SPLIT]]]
-> docker run --rm compss/hipar22:latest random_forest <FLAT|NESTED> [NUM_MODELS [NUM_ESTIMATORS [BATCH_SIZE]]]
+> launch_test random_forest <FLAT|NESTED> [NUM_MODELS [MATRIX_SIZE [BLOCK_SIZE [RECURSIVE_SPLIT]]]]
+> docker run --rm compss/hipar22:latest random_forest <FLAT|NESTED> [NUM_MODELS [MATRIX_SIZE [BLOCK_SIZE [RECURSIVE_SPLIT]]]]
 ```
 
 The script `enqueue` can be used to submit the execution onto the queue system of a supercomputer. Execution times can be retrieved with the `get_times` script which returns a list with an entry for each execution detailing the execution id, the number of nodes used, the number of estimators and the training time in ms for each execution.
 ```bash
-> enqueue <num_nodes> <FLAT|NESTED> [NUM_MODELS [NUM_ESTIMATORS]]
+> enqueue <num_nodes> <FLAT|NESTED> [NUM_MODELS [MATRIX_SIZE [BLOCK_SIZE [RECURSIVE_SPLIT]]]]
 > get_times
 ```

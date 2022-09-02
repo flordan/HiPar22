@@ -1,0 +1,5 @@
+es/bsc/compss/scheduler/types/MOResourceSchedulerTest.class
+es/bsc/compss/scheduler/types/MOProfileTest.class
+es/bsc/compss/scheduler/types/MOResourceSchedulerTest$CheckerException.class
+es/bsc/compss/scheduler/types/fake/FakeNode.class
+es/bsc/compss/scheduler/types/fake/FakeWorker.class

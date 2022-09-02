@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PriorityActionSet.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">COMPSs Scheduler Full Graph Multi-Objetive</a> &gt; <a href="index.source.html" class="el_package">es.bsc.compss.scheduler.multiobjective.types</a> &gt; <span class="el_source">PriorityActionSet.java</span></div><h1>PriorityActionSet.java</h1><pre class="source lang-java linenums">/*
+ *  Copyright 2002-2021 Barcelona Supercomputing Center (www.bsc.es)
+ *
+ *  Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ */
+package es.bsc.compss.scheduler.multiobjective.types;
+
+import es.bsc.compss.scheduler.multiobjective.MOSchedulingInformation;
+import es.bsc.compss.scheduler.types.AllocatableAction;
+import java.util.Comparator;
+import java.util.PriorityQueue;
+
+
+public class PriorityActionSet {
+
+    private final PriorityQueue&lt;AllocatableAction&gt; noCoreActions;
+    private PriorityQueue&lt;AllocatableAction&gt;[] coreActions;
+    private final PriorityQueue&lt;AllocatableAction&gt; priority;
+    public final Comparator&lt;AllocatableAction&gt; comparator;
+
+
+    /**
+     * Creates a new PriorityActionSet instance.
+     * 
+     * @param comparator Action comparator
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+<span class="nc" id="L39">    public PriorityActionSet(Comparator&lt;AllocatableAction&gt; comparator) {</span>
+<span class="nc" id="L40">        this.comparator = comparator;</span>
+<span class="nc" id="L41">        this.noCoreActions = new PriorityQueue&lt;&gt;(1, comparator);</span>
+<span class="nc" id="L42">        this.priority = new PriorityQueue&lt;&gt;(1, comparator);</span>
+<span class="nc" id="L43">        this.coreActions = new PriorityQueue[0];</span>
+<span class="nc" id="L44">    }</span>
+
+    /**
+     * Clones the given PriorityActionSet.
+     * 
+     * @param clone PriorityActionSet to clone.
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+<span class="nc" id="L52">    public PriorityActionSet(PriorityActionSet clone) {</span>
+<span class="nc" id="L53">        this.comparator = clone.comparator;</span>
+<span class="nc" id="L54">        this.noCoreActions = new PriorityQueue&lt;AllocatableAction&gt;(clone.noCoreActions);</span>
+<span class="nc" id="L55">        this.coreActions = new PriorityQueue[clone.coreActions.length];</span>
+<span class="nc bnc" id="L56" title="All 2 branches missed.">        for (int idx = 0; idx &lt; coreActions.length; idx++) {</span>
+<span class="nc" id="L57">            this.coreActions[idx] = new PriorityQueue&lt;AllocatableAction&gt;(clone.coreActions[idx]);</span>
+        }
+<span class="nc" id="L59">        this.priority = new PriorityQueue&lt;&gt;(clone.priority);</span>
+<span class="nc" id="L60">    }</span>
+
+    /**
+     * Adds a new action.
+     * 
+     * @param action Action to add.
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public void offer(AllocatableAction action) {
+<span class="nc bnc" id="L69" title="All 2 branches missed.">        if (((MOSchedulingInformation) action.getSchedulingInfo()).isToReschedule()) {</span>
+<span class="nc" id="L70">            Integer coreId = action.getCoreId();</span>
+<span class="nc" id="L71">            AllocatableAction currentPeek = null;</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">            if (coreId == null) {</span>
+<span class="nc" id="L73">                currentPeek = this.noCoreActions.peek();</span>
+<span class="nc" id="L74">                this.noCoreActions.offer(action);</span>
+            } else {
+<span class="nc bnc" id="L76" title="All 2 branches missed.">                if (coreId &lt; this.coreActions.length) {</span>
+<span class="nc" id="L77">                    currentPeek = this.coreActions[coreId].peek();</span>
+                } else {
+                    // Resize coreActions array
+<span class="nc" id="L80">                    int originalSize = this.coreActions.length;</span>
+<span class="nc" id="L81">                    PriorityQueue&lt;AllocatableAction&gt;[] coreActions =</span>
+<span class="nc" id="L82">                        (PriorityQueue&lt;AllocatableAction&gt;[]) new PriorityQueue[coreId + 1];</span>
+<span class="nc" id="L83">                    System.arraycopy(this.coreActions, 0, coreActions, 0, originalSize);</span>
+<span class="nc bnc" id="L84" title="All 2 branches missed.">                    for (int coreIdx = originalSize; coreIdx &lt; coreId + 1; coreIdx++) {</span>
+<span class="nc" id="L85">                        coreActions[coreIdx] = new PriorityQueue&lt;&gt;(1, this.comparator);</span>
+                    }
+<span class="nc" id="L87">                    this.coreActions = coreActions;</span>
+                }
+<span class="nc" id="L89">                this.coreActions[coreId].offer(action);</span>
+            }
+<span class="nc bnc" id="L91" title="All 2 branches missed.">            if (currentPeek != action) {</span>
+<span class="nc" id="L92">                rebuildPriorityQueue();</span>
+            }
+        }
+<span class="nc" id="L95">    }</span>
+
+    /**
+     * Polls the first action.
+     * 
+     * @return The first action of the set.
+     */
+    public AllocatableAction poll() {
+        AllocatableAction currentPeek;
+<span class="nc bnc" id="L104" title="All 2 branches missed.">        while ((currentPeek = this.priority.poll()) != null) {</span>
+<span class="nc" id="L105">            Integer coreId = currentPeek.getCoreId();</span>
+            AllocatableAction nextPeek;
+<span class="nc bnc" id="L107" title="All 2 branches missed.">            if (coreId == null) {</span>
+<span class="nc" id="L108">                this.noCoreActions.poll();</span>
+<span class="nc" id="L109">                nextPeek = this.noCoreActions.peek();</span>
+            } else {
+<span class="nc" id="L111">                this.coreActions[coreId].poll();</span>
+<span class="nc" id="L112">                nextPeek = this.coreActions[coreId].peek();</span>
+            }
+<span class="nc bnc" id="L114" title="All 2 branches missed.">            if (nextPeek != null) {</span>
+<span class="nc" id="L115">                this.priority.offer(nextPeek);</span>
+            }
+<span class="nc" id="L117">            MOSchedulingInformation dsi = (MOSchedulingInformation) currentPeek.getSchedulingInfo();</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">            if (dsi.isToReschedule()) {</span>
+<span class="nc" id="L119">                break;</span>
+            }
+<span class="nc" id="L121">        }</span>
+<span class="nc" id="L122">        return currentPeek;</span>
+    }
+
+    /**
+     * If a coreId is provided, removes the first action associated to this coreId. Otherwise, removes the first action
+     * of unassigned core actions.
+     * 
+     * @param coreId Core Id.
+     */
+    public void removeFirst(Integer coreId) {
+<span class="nc bnc" id="L132" title="All 2 branches missed.">        if (coreId == null) {</span>
+<span class="nc" id="L133">            this.noCoreActions.poll();</span>
+        } else {
+<span class="nc" id="L135">            this.coreActions[coreId].poll();</span>
+        }
+<span class="nc" id="L137">        rebuildPriorityQueue();</span>
+<span class="nc" id="L138">    }</span>
+
+    /**
+     * Peeks the first action (does not remove it).
+     * 
+     * @return The first action (without removing it from the set).
+     */
+    public AllocatableAction peek() {
+<span class="nc" id="L146">        AllocatableAction currentPeek = this.priority.peek();</span>
+<span class="nc bnc" id="L147" title="All 4 branches missed.">        while (currentPeek != null &amp;&amp; !((MOSchedulingInformation) currentPeek.getSchedulingInfo()).isToReschedule()) {</span>
+<span class="nc" id="L148">            removeFirst(currentPeek.getCoreId());</span>
+<span class="nc" id="L149">            currentPeek = this.priority.peek();</span>
+        }
+<span class="nc" id="L151">        return currentPeek;</span>
+    }
+
+    /**
+     * Returns a priority queue with all the registered actions without removing them.
+     * 
+     * @return A priority queue with all the registered actions without removing them.
+     */
+    public PriorityQueue&lt;AllocatableAction&gt; peekAll() {
+<span class="nc" id="L160">        PriorityQueue&lt;AllocatableAction&gt; peeks =</span>
+            new PriorityQueue&lt;AllocatableAction&gt;(this.coreActions.length + 1, this.comparator);
+
+<span class="nc" id="L163">        AllocatableAction currentCore = this.noCoreActions.peek();</span>
+<span class="nc bnc" id="L164" title="All 4 branches missed.">        if (currentCore != null &amp;&amp; !((MOSchedulingInformation) currentCore.getSchedulingInfo()).isToReschedule()) {</span>
+<span class="nc" id="L165">            this.noCoreActions.poll();</span>
+<span class="nc" id="L166">            currentCore = this.noCoreActions.peek();</span>
+        }
+<span class="nc bnc" id="L168" title="All 2 branches missed.">        if (currentCore != null) {</span>
+<span class="nc" id="L169">            peeks.offer(currentCore);</span>
+        }
+
+<span class="nc bnc" id="L172" title="All 2 branches missed.">        for (PriorityQueue&lt;AllocatableAction&gt; core : this.coreActions) {</span>
+<span class="nc" id="L173">            currentCore = core.peek();</span>
+<span class="nc bnc" id="L174" title="All 4 branches missed.">            if (currentCore != null &amp;&amp; !((MOSchedulingInformation) currentCore.getSchedulingInfo()).isToReschedule()) {</span>
+<span class="nc" id="L175">                core.poll();</span>
+<span class="nc" id="L176">                currentCore = core.peek();</span>
+            }
+<span class="nc bnc" id="L178" title="All 2 branches missed.">            if (currentCore != null) {</span>
+<span class="nc" id="L179">                peeks.offer(currentCore);</span>
+            }
+        }
+<span class="nc" id="L182">        return peeks;</span>
+    }
+
+    private void rebuildPriorityQueue() {
+<span class="nc" id="L186">        this.priority.clear();</span>
+<span class="nc" id="L187">        AllocatableAction action = this.noCoreActions.peek();</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">        if (action != null) {</span>
+<span class="nc" id="L189">            this.priority.offer(action);</span>
+        }
+<span class="nc bnc" id="L191" title="All 2 branches missed.">        for (PriorityQueue&lt;AllocatableAction&gt; coreAction : this.coreActions) {</span>
+<span class="nc" id="L192">            action = coreAction.peek();</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">            if (action != null) {</span>
+<span class="nc" id="L194">                this.priority.offer(action);</span>
+            }
+        }
+<span class="nc" id="L197">    }</span>
+
+    /**
+     * Returns the number of registered actions in the set.
+     * 
+     * @return The number of registered actions in the set.
+     */
+    public int size() {
+<span class="nc" id="L205">        int size = 0;</span>
+<span class="nc" id="L206">        size += this.noCoreActions.size();</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">        for (PriorityQueue&lt;AllocatableAction&gt; pq : this.coreActions) {</span>
+<span class="nc" id="L208">            size += pq.size();</span>
+        }
+<span class="nc" id="L210">        return size;</span>
+    }
+
+    /**
+     * Returns whether the set is empty or not.
+     * 
+     * @return {@literal true} if the set is empty, {@literal false} otherwise.
+     */
+    public boolean isEmpty() {
+<span class="nc bnc" id="L219" title="All 2 branches missed.">        return size() == 0;</span>
+    }
+
+    /**
+     * Removes the given action from the set.
+     * 
+     * @param action Action to remove.
+     */
+    public void remove(AllocatableAction action) {
+<span class="nc bnc" id="L228" title="All 2 branches missed.">        if (action.getCoreId() == null) {</span>
+<span class="nc" id="L229">            this.noCoreActions.remove(action);</span>
+        } else {
+<span class="nc" id="L231">            this.coreActions[action.getCoreId()].remove(action);</span>
+        }
+<span class="nc" id="L233">    }</span>
+
+    @Override
+    public String toString() {
+<span class="nc" id="L237">        StringBuilder sb = new StringBuilder();</span>
+<span class="nc" id="L238">        sb.append(&quot;noCore -&gt; &quot;).append(this.noCoreActions).append(&quot;\n&quot;);</span>
+<span class="nc bnc" id="L239" title="All 2 branches missed.">        for (int i = 0; i &lt; this.coreActions.length; i++) {</span>
+<span class="nc" id="L240">            sb.append(&quot;Core &quot;).append(i).append(&quot; -&gt; &quot;).append(this.coreActions[i]).append(&quot;\n&quot;);</span>
+        }
+<span class="nc" id="L242">        return sb.toString();</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

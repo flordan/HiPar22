@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MOProfile.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">COMPSs Scheduler Full Graph Multi-Objetive</a> &gt; <a href="index.source.html" class="el_package">es.bsc.compss.scheduler.multiobjective.types</a> &gt; <span class="el_source">MOProfile.java</span></div><h1>MOProfile.java</h1><pre class="source lang-java linenums">/*
+ *  Copyright 2002-2021 Barcelona Supercomputing Center (www.bsc.es)
+ *
+ *  Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ */
+package es.bsc.compss.scheduler.multiobjective.types;
+
+import es.bsc.compss.scheduler.types.Profile;
+import es.bsc.compss.types.implementations.Implementation;
+import es.bsc.compss.types.resources.Worker;
+import es.bsc.compss.types.resources.WorkerResourceDescription;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+
+public class MOProfile extends Profile {
+
+    protected static final double DEFAULT_PRICE = 0;
+    protected static final double DEFAULT_POWER = 0;
+
+    private double power;
+    private double price;
+
+
+    /**
+     * Creates a new MOProfile instance.
+     */
+    public MOProfile() {
+<span class="fc" id="L40">        super();</span>
+<span class="fc" id="L41">        this.power = DEFAULT_POWER;</span>
+<span class="fc" id="L42">        this.price = DEFAULT_PRICE;</span>
+<span class="fc" id="L43">    }</span>
+
+    /**
+     * Creates a copy of the given profile {@code p}.
+     * 
+     * @param p Profile to copy.
+     */
+    private MOProfile(MOProfile p) {
+<span class="nc" id="L51">        super(p);</span>
+<span class="nc" id="L52">        this.power = p.power;</span>
+<span class="nc" id="L53">        this.price = p.price;</span>
+<span class="nc" id="L54">    }</span>
+
+    /**
+     * Creates a new profile instance from the given JSON information.
+     * 
+     * @param json JSONObject containing the profile information.
+     */
+    public MOProfile(JSONObject json) {
+<span class="fc" id="L62">        super(json);</span>
+<span class="fc bfc" id="L63" title="All 2 branches covered.">        if (json != null) {</span>
+            try {
+<span class="fc" id="L65">                this.power = json.getDouble(&quot;power&quot;);</span>
+<span class="fc" id="L66">            } catch (JSONException je) {</span>
+<span class="fc" id="L67">                this.power = DEFAULT_POWER;</span>
+<span class="fc" id="L68">            }</span>
+            try {
+<span class="fc" id="L70">                this.price = json.getDouble(&quot;price&quot;);</span>
+<span class="fc" id="L71">            } catch (JSONException je) {</span>
+<span class="fc" id="L72">                this.price = DEFAULT_PRICE;</span>
+<span class="fc" id="L73">            }</span>
+        } else {
+<span class="fc" id="L75">            this.power = DEFAULT_POWER;</span>
+<span class="fc" id="L76">            this.price = DEFAULT_PRICE;</span>
+        }
+<span class="fc" id="L78">    }</span>
+
+    /**
+     * Creates a new profile instance for the given implementation and resource.
+     * 
+     * @param impl Associated implementation.
+     * @param resource Associated resource.
+     */
+<span class="nc" id="L86">    public &lt;T extends WorkerResourceDescription&gt; MOProfile(Implementation impl, Worker&lt;T&gt; resource) {</span>
+<span class="nc" id="L87">        this.power = 0;</span>
+<span class="nc" id="L88">        this.price = 0;</span>
+<span class="nc" id="L89">    }</span>
+
+    /**
+     * Returns the consumed power.
+     * 
+     * @return The consumer power.
+     */
+    public double getPower() {
+<span class="fc" id="L97">        return this.power;</span>
+    }
+
+    /**
+     * Returns the consumed price.
+     * 
+     * @return The consumed price.
+     */
+    public double getPrice() {
+<span class="fc" id="L106">        return this.price;</span>
+    }
+
+    /**
+     * Sets a new power value.
+     * 
+     * @param power New power value.
+     */
+    public void setPower(double power) {
+<span class="nc" id="L115">        this.power = power;</span>
+<span class="nc" id="L116">    }</span>
+
+    /**
+     * Sets a new price value.
+     * 
+     * @param price New price value.
+     */
+    public void setPrice(double price) {
+<span class="nc" id="L124">        this.price = price;</span>
+<span class="nc" id="L125">    }</span>
+
+    /**
+     * Accumulates the given profile into this one.
+     * 
+     * @param profile Profile to accumulate.
+     */
+    public void accumulate(MOProfile profile) {
+<span class="nc" id="L133">        super.accumulate(profile);</span>
+<span class="nc" id="L134">    }</span>
+
+    @Override
+    public JSONObject toJSONObject() {
+<span class="fc" id="L138">        JSONObject jo = super.toJSONObject();</span>
+<span class="fc" id="L139">        jo.put(&quot;power&quot;, this.power);</span>
+<span class="fc" id="L140">        jo.put(&quot;price&quot;, this.price);</span>
+<span class="fc" id="L141">        return jo;</span>
+    }
+
+    @Override
+    public JSONObject updateJSON(JSONObject jo) {
+<span class="nc" id="L146">        JSONObject difference = super.updateJSON(jo);</span>
+
+<span class="nc" id="L148">        double diff = this.power;</span>
+<span class="nc bnc" id="L149" title="All 2 branches missed.">        if (jo.has(&quot;power&quot;)) {</span>
+<span class="nc" id="L150">            diff -= jo.getDouble(&quot;power&quot;);</span>
+        }
+<span class="nc" id="L152">        difference.put(&quot;power&quot;, diff);</span>
+<span class="nc" id="L153">        jo.put(&quot;power&quot;, this.power);</span>
+
+<span class="nc" id="L155">        diff = this.price;</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">        if (jo.has(&quot;price&quot;)) {</span>
+<span class="nc" id="L157">            diff -= jo.getDouble(&quot;price&quot;);</span>
+        }
+<span class="nc" id="L159">        difference.put(&quot;price&quot;, diff);</span>
+<span class="nc" id="L160">        jo.put(&quot;price&quot;, this.price);</span>
+<span class="nc" id="L161">        return difference;</span>
+    }
+
+    @Override
+    public Profile copy() {
+<span class="nc" id="L166">        return new MOProfile(this);</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="nc" id="L171">        return &quot;[MOProfile &quot; + getContent() + &quot;]&quot;;</span>
+    }
+
+    @Override
+    protected String getContent() {
+<span class="nc" id="L176">        return super.getContent() + &quot; power=&quot; + this.power + &quot; price=&quot; + this.price;</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<checkstyle version="8.18">
+<file name="/home/flordan/git/compss/framework/compss/runtime/scheduler/newFifoDataLocationScheduler/src/main/java/es/bsc/compss/scheduler/fifodatalocation/FIFODataLocationResourceScheduler.java">
+</file>
+<file name="/home/flordan/git/compss/framework/compss/runtime/scheduler/newFifoDataLocationScheduler/src/main/java/es/bsc/compss/scheduler/fifodatalocation/FIFODataLocationScheduler.java">
+</file>
+</checkstyle>

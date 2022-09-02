@@ -1,0 +1,1352 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MOResourceScheduler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">COMPSs Scheduler Full Graph Multi-Objetive</a> &gt; <a href="index.source.html" class="el_package">es.bsc.compss.scheduler.multiobjective</a> &gt; <span class="el_source">MOResourceScheduler.java</span></div><h1>MOResourceScheduler.java</h1><pre class="source lang-java linenums">/*
+ *  Copyright 2002-2021 Barcelona Supercomputing Center (www.bsc.es)
+ *
+ *  Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ */
+package es.bsc.compss.scheduler.multiobjective;
+
+import es.bsc.compss.components.impl.ResourceScheduler;
+import es.bsc.compss.log.Loggers;
+import es.bsc.compss.scheduler.exceptions.ActionNotFoundException;
+import es.bsc.compss.scheduler.exceptions.BlockedActionException;
+import es.bsc.compss.scheduler.exceptions.InvalidSchedulingException;
+import es.bsc.compss.scheduler.exceptions.UnassignedActionException;
+import es.bsc.compss.scheduler.multiobjective.config.MOConfiguration;
+import es.bsc.compss.scheduler.multiobjective.types.Gap;
+import es.bsc.compss.scheduler.multiobjective.types.LocalOptimizationState;
+import es.bsc.compss.scheduler.multiobjective.types.MOProfile;
+import es.bsc.compss.scheduler.multiobjective.types.MOScore;
+import es.bsc.compss.scheduler.multiobjective.types.OptimizationAction;
+import es.bsc.compss.scheduler.multiobjective.types.SchedulingEvent;
+import es.bsc.compss.scheduler.types.AllocatableAction;
+import es.bsc.compss.scheduler.types.Profile;
+import es.bsc.compss.scheduler.types.Score;
+import es.bsc.compss.types.TaskDescription;
+import es.bsc.compss.types.implementations.Implementation;
+import es.bsc.compss.types.resources.ResourceDescription;
+import es.bsc.compss.types.resources.Worker;
+import es.bsc.compss.types.resources.WorkerResourceDescription;
+import es.bsc.compss.util.CoreManager;
+
+import java.util.Comparator;
+import java.util.ConcurrentModificationException;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.PriorityQueue;
+import java.util.Set;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+
+public class MOResourceScheduler&lt;T extends WorkerResourceDescription&gt; extends ResourceScheduler&lt;T&gt; {
+
+    // Logger
+<span class="fc" id="L60">    protected static final Logger LOGGER = LogManager.getLogger(Loggers.TS_COMP);</span>
+<span class="fc" id="L61">    protected static final boolean IS_DEBUG = LOGGER.isDebugEnabled();</span>
+    protected static final String LOG_PREFIX = &quot;[MOResourceScheduler] &quot;;
+
+    private final LinkedList&lt;Gap&gt; gaps;
+<span class="fc" id="L65">    private double pendingActionsEnergy = 0; // mJ</span>
+<span class="fc" id="L66">    private double pendingActionsCost = 0; // Currency*ms/h</span>
+    private int[][] implementationsCount;
+    private int[][] runningImplementationsCount;
+<span class="fc" id="L69">    private double runningActionsEnergy = 0; // mJ</span>
+<span class="fc" id="L70">    private double runningActionsCost = 0; // Currency*ms/h</span>
+
+<span class="fc" id="L72">    private double runActionsEnergy = 0; // mJ</span>
+<span class="fc" id="L73">    private double runActionsCost = 0; // Currency*ms/h</span>
+
+    private OptimizationAction opAction;
+<span class="fc" id="L76">    private final Set&lt;AllocatableAction&gt; pendingUnschedulings = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L77">    private AllocatableAction resourceBlockingAction = new OptimizationAction();</span>
+<span class="fc" id="L78">    private AllocatableAction dataBlockingAction = new OptimizationAction();</span>
+    private long expectedEndTimeRunning;
+    private final double idlePower; // W
+    private final double idlePrice; // Currency/h
+
+
+    /**
+     * Creates a new MOResourceScheduler instance.
+     * 
+     * @param w Associated worker.
+     * @param resourceJSON Worker JSON resource description.
+     * @param implsJSON Implementation JSON description.
+     */
+    public MOResourceScheduler(Worker&lt;T&gt; w, JSONObject resourceJSON, JSONObject implsJSON) {
+<span class="fc" id="L92">        super(w, resourceJSON, implsJSON);</span>
+
+<span class="fc" id="L94">        this.gaps = new LinkedList&lt;&gt;();</span>
+<span class="fc" id="L95">        addGap(new Gap(Long.MIN_VALUE, Long.MAX_VALUE, null, myWorker.getDescription().copy(), 0));</span>
+<span class="fc" id="L96">        this.implementationsCount = new int[CoreManager.getCoreCount()][];</span>
+<span class="fc" id="L97">        this.runningImplementationsCount = new int[CoreManager.getCoreCount()][];</span>
+<span class="fc bfc" id="L98" title="All 2 branches covered.">        for (int coreId = 0; coreId &lt; CoreManager.getCoreCount(); coreId++) {</span>
+<span class="fc" id="L99">            this.implementationsCount[coreId] = new int[CoreManager.getCoreImplementations(coreId).size()];</span>
+<span class="fc" id="L100">            this.runningImplementationsCount[coreId] = new int[CoreManager.getCoreImplementations(coreId).size()];</span>
+        }
+<span class="fc" id="L102">        this.expectedEndTimeRunning = 0;</span>
+        double idlePower;
+        double idlePrice;
+
+<span class="fc bfc" id="L106" title="All 2 branches covered.">        if (resourceJSON != null) {</span>
+            try {
+<span class="fc" id="L108">                idlePower = resourceJSON.getDouble(&quot;idlePower&quot;);</span>
+<span class="fc" id="L109">            } catch (JSONException je) {</span>
+<span class="fc" id="L110">                idlePower = MOConfiguration.DEFAULT_IDLE_POWER;</span>
+<span class="fc" id="L111">            }</span>
+
+            try {
+<span class="fc" id="L114">                idlePrice = resourceJSON.getDouble(&quot;idlePrice&quot;);</span>
+<span class="fc" id="L115">            } catch (JSONException je) {</span>
+<span class="fc" id="L116">                idlePrice = MOConfiguration.DEFAULT_IDLE_PRICE;</span>
+<span class="fc" id="L117">            }</span>
+        } else {
+<span class="fc" id="L119">            idlePower = MOConfiguration.DEFAULT_IDLE_POWER;</span>
+<span class="fc" id="L120">            idlePrice = MOConfiguration.DEFAULT_IDLE_PRICE;</span>
+        }
+<span class="fc" id="L122">        this.idlePower = idlePower;</span>
+<span class="fc" id="L123">        this.idlePrice = idlePrice;</span>
+<span class="fc" id="L124">    }</span>
+
+    /*--------------------------------------------------
+     ---------------------------------------------------
+     ------------------ Score Methods ------------------
+     ---------------------------------------------------
+     --------------------------------------------------*/
+
+    @Override
+    public Score generateResourceScore(AllocatableAction action, TaskDescription params, Score actionScore) {
+<span class="nc" id="L134">        long resScore = (long) action.getSchedulingInfo().getPreregisteredScore(myWorker);</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">        for (AllocatableAction pred : action.getDataPredecessors()) {</span>
+<span class="nc bnc" id="L136" title="All 4 branches missed.">            if (pred.isPending() &amp;&amp; pred.getAssignedResource() == this) {</span>
+<span class="nc" id="L137">                resScore++;</span>
+            }
+<span class="nc" id="L139">        }</span>
+<span class="nc" id="L140">        resScore = params.getParameters().size() - resScore;</span>
+<span class="nc" id="L141">        long lessTimeStamp = Long.MAX_VALUE;</span>
+<span class="nc" id="L142">        Gap g = this.gaps.peekFirst();</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">        if (g != null) {</span>
+<span class="nc" id="L144">            lessTimeStamp = g.getInitialTime();</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">            if (lessTimeStamp &lt; 0) {</span>
+<span class="nc" id="L146">                lessTimeStamp = 0;</span>
+            }
+        }
+<span class="nc" id="L149">        long actionPriority = actionScore.getPriority();</span>
+<span class="nc" id="L150">        long actionGroupId = action.getGroupPriority();</span>
+<span class="nc" id="L151">        long expectedDataAvailable =</span>
+<span class="nc" id="L152">            ((MOScore) actionScore).getExpectedDataAvailable() + resScore * MOConfiguration.DATA_TRANSFER_DELAY;</span>
+
+<span class="nc" id="L154">        return new MOScore(actionPriority, actionGroupId, lessTimeStamp, expectedDataAvailable, 0, 0, 0);</span>
+    }
+
+    @Override
+    public Score generateImplementationScore(AllocatableAction action, TaskDescription params, Implementation impl,
+        Score resourceScore) {
+<span class="nc" id="L160">        long resourceFreeTime = getResourceFreeTime(impl);</span>
+<span class="nc" id="L161">        long expectedDataAvailable = ((MOScore) resourceScore).getExpectedDataAvailable();</span>
+<span class="nc" id="L162">        long actionPriority = resourceScore.getPriority();</span>
+<span class="nc" id="L163">        long actionGroupId = action.getGroupPriority();</span>
+<span class="nc" id="L164">        return generateMOScore(resourceFreeTime, expectedDataAvailable, actionPriority, actionGroupId, impl);</span>
+    }
+
+    /**
+     * Generates a score for moving an implementation.
+     * 
+     * @param action Associated action.
+     * @param params Action parameters.
+     * @param impl Action implementation.
+     * @param resourceScore Resource score.
+     * @param moveTime Time to perform the move.
+     * @return Score for moving the given implementation.
+     */
+    public MOScore generateMoveImplementationScore(AllocatableAction action, TaskDescription params,
+        Implementation impl, Score resourceScore, long moveTime) {
+
+<span class="nc" id="L180">        long resourceFreeTime = getResourceFreeTime(impl) + moveTime;</span>
+<span class="nc" id="L181">        long expectedDataAvailable = ((MOScore) resourceScore).getExpectedDataAvailable() + moveTime;</span>
+<span class="nc" id="L182">        long actionPriority = resourceScore.getPriority();</span>
+<span class="nc" id="L183">        long actionGroupId = action.getGroupPriority();</span>
+<span class="nc" id="L184">        return generateMOScore(resourceFreeTime, expectedDataAvailable, actionPriority, actionGroupId, impl);</span>
+    }
+
+    private long getResourceFreeTime(Implementation impl) {
+<span class="nc" id="L188">        ResourceDescription rd = impl.getRequirements().copy();</span>
+<span class="nc" id="L189">        long resourceFreeTime = 0;</span>
+        try {
+<span class="nc bnc" id="L191" title="All 2 branches missed.">            for (Gap g : this.gaps) {</span>
+<span class="nc" id="L192">                rd.reduceDynamic(g.getResources());</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">                if (rd.isDynamicUseless()) {</span>
+<span class="nc" id="L194">                    resourceFreeTime = g.getInitialTime();</span>
+<span class="nc" id="L195">                    break;</span>
+                }
+<span class="nc" id="L197">            }</span>
+<span class="nc" id="L198">        } catch (ConcurrentModificationException cme) {</span>
+<span class="nc" id="L199">            resourceFreeTime = 0;</span>
+<span class="nc" id="L200">        }</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        if (resourceFreeTime &lt; 0) {</span>
+<span class="nc" id="L202">            resourceFreeTime = 0;</span>
+        }
+<span class="nc" id="L204">        return resourceFreeTime;</span>
+    }
+
+    /**
+     * Generates a score for the current implementation.
+     * 
+     * @param action Action score.
+     * @param impl Implementation score.
+     * @param resourceScore Resource score.
+     * @return Full score for the current implementation.
+     */
+    public MOScore generateCurrentImplementationScore(AllocatableAction action, Implementation impl,
+        Score resourceScore) {
+
+        // Check if it is to be deleted
+<span class="nc" id="L219">        long resourceFreeTime = Long.MAX_VALUE;</span>
+<span class="nc" id="L220">        Gap g = this.gaps.peekFirst();</span>
+<span class="nc bnc" id="L221" title="All 2 branches missed.">        if (g != null) {</span>
+<span class="nc" id="L222">            resourceFreeTime = ((MOSchedulingInformation) action.getSchedulingInfo()).getExpectedStart();</span>
+        }
+<span class="nc" id="L224">        long expectedDataAvailable = ((MOScore) resourceScore).getExpectedDataAvailable();</span>
+<span class="nc" id="L225">        long actionPriority = resourceScore.getPriority();</span>
+<span class="nc" id="L226">        long actionGroupId = action.getGroupPriority();</span>
+<span class="nc" id="L227">        return generateMOScore(resourceFreeTime, expectedDataAvailable, actionPriority, actionGroupId, impl);</span>
+
+    }
+
+    /**
+     * Generates a MOScore.
+     * 
+     * @param resourceFreeTime Resource free time.
+     * @param expectedDataAvailable Expected time for data available.
+     * @param actionPriority Action priority.
+     * @param impl Implementation to run.
+     * @return Score.
+     */
+    public MOScore generateMOScore(long resourceFreeTime, long expectedDataAvailable, long actionPriority,
+        long actionGroupId, Implementation impl) {
+
+<span class="nc" id="L243">        long implScore = 0;</span>
+<span class="nc" id="L244">        double energy = 0;</span>
+<span class="nc" id="L245">        double cost = 0;</span>
+<span class="nc" id="L246">        MOProfile p = (MOProfile) this.getProfile(impl);</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">        if (p != null) {</span>
+<span class="nc" id="L248">            implScore = p.getAverageExecutionTime();</span>
+<span class="nc" id="L249">            long waitingTime = Math.max(resourceFreeTime, expectedDataAvailable);</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">            if (waitingTime &lt; Long.MAX_VALUE) {</span>
+<span class="nc" id="L251">                energy = ((waitingTime + implScore) * getIdlePower()) + (p.getPower() * implScore);</span>
+<span class="nc" id="L252">                cost = ((waitingTime + implScore) * getIdlePrice()) + (p.getPrice() * implScore);</span>
+            } else {
+<span class="nc" id="L254">                energy = Double.MAX_VALUE;</span>
+<span class="nc" id="L255">                cost = Double.MAX_VALUE;</span>
+            }
+        }
+        // The data transfer penalty is already included on the datadependency time of the resourceScore
+<span class="nc" id="L259">        return new MOScore(actionPriority, actionGroupId, resourceFreeTime, expectedDataAvailable, implScore, energy,</span>
+            cost);
+    }
+
+    /*--------------------------------------------------
+     ---------------------------------------------------
+     ---------------- Scheduler Methods ----------------
+     ---------------------------------------------------
+     --------------------------------------------------*/
+
+    @Override
+    public void scheduleAction(AllocatableAction action) {
+<span class="nc" id="L271">        synchronized (this.gaps) {</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">            if (this.opAction != null) { // If optimization in progress</span>
+<span class="nc" id="L273">                ((MOSchedulingInformation) this.opAction.getSchedulingInfo()).addSuccessor(action);</span>
+<span class="nc" id="L274">                Gap opActionGap =</span>
+<span class="nc" id="L275">                    new Gap(0, 0, this.opAction, action.getAssignedImplementation().getRequirements().copy(), 0);</span>
+<span class="nc" id="L276">                ((MOSchedulingInformation) action.getSchedulingInfo()).addPredecessor(opActionGap);</span>
+<span class="nc" id="L277">            } else {</span>
+<span class="nc" id="L278">                scheduleUsingGaps(action, this.gaps);</span>
+            }
+<span class="nc" id="L280">        }</span>
+<span class="nc" id="L281">    }</span>
+
+    @Override
+    public List&lt;AllocatableAction&gt; unscheduleAction(AllocatableAction action) throws ActionNotFoundException {
+<span class="nc" id="L285">        super.unscheduleAction(action);</span>
+<span class="nc" id="L286">        List&lt;AllocatableAction&gt; freeActions = new LinkedList&lt;&gt;();</span>
+
+<span class="nc" id="L288">        MOSchedulingInformation actionDSI = (MOSchedulingInformation) action.getSchedulingInfo();</span>
+<span class="nc" id="L289">        List&lt;Gap&gt; resources = new LinkedList&lt;&gt;();</span>
+
+        // Block all predecessors
+<span class="nc bnc" id="L292" title="All 2 branches missed.">        for (Gap pGap : actionDSI.getPredecessors()) {</span>
+<span class="nc" id="L293">            AllocatableAction pred = pGap.getOrigin();</span>
+<span class="nc bnc" id="L294" title="All 2 branches missed.">            if (pred != null) {</span>
+<span class="nc" id="L295">                MOSchedulingInformation predDSI = (MOSchedulingInformation) pred.getSchedulingInfo();</span>
+<span class="nc" id="L296">                predDSI.lock();</span>
+            }
+<span class="nc" id="L298">        }</span>
+        // Block Action
+<span class="nc" id="L300">        actionDSI.lock();</span>
+
+<span class="nc bnc" id="L302" title="All 4 branches missed.">        if (!actionDSI.isScheduled() || action.getAssignedResource() != this) {</span>
+<span class="nc bnc" id="L303" title="All 2 branches missed.">            for (Gap pGap : actionDSI.getPredecessors()) {</span>
+<span class="nc" id="L304">                AllocatableAction pred = pGap.getOrigin();</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">                if (pred != null) {</span>
+<span class="nc" id="L306">                    MOSchedulingInformation predDSI = (MOSchedulingInformation) pred.getSchedulingInfo();</span>
+<span class="nc" id="L307">                    predDSI.unlock();</span>
+                }
+<span class="nc" id="L309">            }</span>
+<span class="nc" id="L310">            actionDSI.unscheduled();</span>
+<span class="nc" id="L311">            actionDSI.unlock();</span>
+<span class="nc" id="L312">            throw new ActionNotFoundException();</span>
+        }
+<span class="nc" id="L314">        LOGGER.debug(LOG_PREFIX + &quot;Looking for dependency free successors&quot;);</span>
+<span class="nc" id="L315">        ResourceDescription unassignedResources = action.getAssignedImplementation().getRequirements().copy();</span>
+        // For each predecessor consuming resources -&gt;
+        // Register resources depending on a predecessor
+        // Remove the scheduling dependency on the predecessor
+<span class="nc bnc" id="L319" title="All 2 branches missed.">        for (Gap pGap : actionDSI.getPredecessors()) {</span>
+<span class="nc" id="L320">            AllocatableAction pred = pGap.getOrigin();</span>
+<span class="nc bnc" id="L321" title="All 2 branches missed.">            if (pred != null) {</span>
+<span class="nc bnc" id="L322" title="All 2 branches missed.">                if (!(pred instanceof OptimizationAction)) {</span>
+<span class="nc" id="L323">                    resources.add(new Gap(pGap.getInitialTime(), Long.MAX_VALUE, pred, pGap.getResources().copy(), 0));</span>
+<span class="nc" id="L324">                    unassignedResources.reduceDynamic(pGap.getResources());</span>
+                }
+<span class="nc" id="L326">                MOSchedulingInformation predDSI = (MOSchedulingInformation) pred.getSchedulingInfo();</span>
+<span class="nc" id="L327">                predDSI.removeSuccessor(action);</span>
+            }
+<span class="nc" id="L329">        }</span>
+<span class="nc" id="L330">        resources.add(new Gap(Long.MIN_VALUE, Long.MAX_VALUE, null, unassignedResources, 0));</span>
+        // Remove all predecessors for
+<span class="nc" id="L332">        actionDSI.clearPredecessors();</span>
+
+        // Block all successors
+<span class="nc" id="L335">        List&lt;MOSchedulingInformation&gt; successorsDSIs = new LinkedList&lt;MOSchedulingInformation&gt;();</span>
+<span class="nc bnc" id="L336" title="All 2 branches missed.">        for (AllocatableAction successor : actionDSI.getSuccessors()) {</span>
+<span class="nc" id="L337">            MOSchedulingInformation succDSI = (MOSchedulingInformation) successor.getSchedulingInfo();</span>
+<span class="nc" id="L338">            succDSI.lock();</span>
+<span class="nc" id="L339">            successorsDSIs.add(succDSI);</span>
+<span class="nc" id="L340">        }</span>
+
+        // For each successor look for the resources
+<span class="nc bnc" id="L343" title="All 2 branches missed.">        for (AllocatableAction successor : actionDSI.getSuccessors()) {</span>
+<span class="nc" id="L344">            LOGGER.debug(LOG_PREFIX + &quot;Treating successor: &quot; + successor);</span>
+<span class="nc" id="L345">            MOSchedulingInformation succDSI = (MOSchedulingInformation) successor.getSchedulingInfo();</span>
+            // Gets the resources that was supposed to get from the task and remove the dependency
+<span class="nc" id="L347">            Gap toCover = succDSI.removePredecessor(action);</span>
+<span class="nc bnc" id="L348" title="All 2 branches missed.">            if (toCover != null) {</span>
+<span class="nc" id="L349">                ResourceDescription resToCover = toCover.getResources();</span>
+
+                // Scans the resources related to the task to cover its requirements
+<span class="nc" id="L352">                Iterator&lt;Gap&gt; gIt = resources.iterator();</span>
+<span class="nc bnc" id="L353" title="All 2 branches missed.">                while (gIt.hasNext()) {</span>
+<span class="nc" id="L354">                    Gap availableGap = gIt.next();</span>
+                    // Takes the resources from a predecessor,
+<span class="nc" id="L356">                    ResourceDescription availableDesc = availableGap.getResources();</span>
+<span class="nc" id="L357">                    ResourceDescription usedResources =</span>
+<span class="nc" id="L358">                        ResourceDescription.reduceCommonDynamics(availableDesc, resToCover);</span>
+
+                    // If it could take some of the resources -&gt; adds a dependency
+                    // If all the resources from the predecessor are used -&gt; removes from the list &amp; unlock
+                    // If all the resources required for the successor are covered -&gt; move to the next successor
+<span class="nc bnc" id="L363" title="All 2 branches missed.">                    if (!usedResources.isDynamicUseless()) {</span>
+<span class="nc" id="L364">                        AllocatableAction availableOrigin = availableGap.getOrigin();</span>
+<span class="nc" id="L365">                        MOSchedulingInformation availableDSI = null;</span>
+<span class="nc bnc" id="L366" title="All 2 branches missed.">                        if (availableOrigin != null) {</span>
+<span class="nc" id="L367">                            availableDSI = (MOSchedulingInformation) availableOrigin.getSchedulingInfo();</span>
+<span class="nc" id="L368">                            availableDSI.addSuccessor(successor);</span>
+<span class="nc" id="L369">                            succDSI.addPredecessor(new Gap(availableGap.getInitialTime(), Long.MAX_VALUE,</span>
+                                availableOrigin, usedResources, 0));
+                        }
+<span class="nc bnc" id="L372" title="All 2 branches missed.">                        if (availableDesc.isDynamicUseless()) {</span>
+<span class="nc" id="L373">                            gIt.remove();</span>
+<span class="nc bnc" id="L374" title="All 2 branches missed.">                            if (availableDSI != null) {</span>
+<span class="nc" id="L375">                                availableDSI.unlock();</span>
+                            }
+                        }
+<span class="nc bnc" id="L378" title="All 2 branches missed.">                        if (resToCover.isDynamicUseless()) {</span>
+<span class="nc" id="L379">                            break;</span>
+                        }
+                    }
+<span class="nc" id="L382">                }</span>
+            }
+
+<span class="nc bnc" id="L385" title="All 2 branches missed.">            if (succDSI.isExecutable()) {</span>
+<span class="nc" id="L386">                freeActions.add(successor);</span>
+            }
+<span class="nc" id="L388">        }</span>
+        // Clear action's successors
+<span class="nc" id="L390">        actionDSI.clearSuccessors();</span>
+
+        // Indicate that the task is fully unscheduled
+<span class="nc" id="L393">        actionDSI.unscheduled();</span>
+
+        // Register those resources occupied by the task that haven't been used as free
+<span class="nc" id="L396">        synchronized (this.gaps) {</span>
+<span class="nc bnc" id="L397" title="All 2 branches missed.">            if (actionDSI.isOnOptimization()) {</span>
+<span class="nc" id="L398">                this.pendingUnschedulings.add(action);</span>
+            }
+<span class="nc" id="L400">            Iterator&lt;Gap&gt; gIt = this.gaps.iterator();</span>
+<span class="nc bnc" id="L401" title="All 2 branches missed.">            while (gIt.hasNext()) {</span>
+<span class="nc" id="L402">                Gap g = gIt.next();</span>
+<span class="nc bnc" id="L403" title="All 2 branches missed.">                if (g.getOrigin() == action) {</span>
+<span class="nc" id="L404">                    gIt.remove();</span>
+                }
+<span class="nc" id="L406">            }</span>
+<span class="nc bnc" id="L407" title="All 2 branches missed.">            for (Gap newGap : resources) {</span>
+<span class="nc" id="L408">                AllocatableAction gapAction = newGap.getOrigin();</span>
+<span class="nc" id="L409">                addGap(newGap);</span>
+<span class="nc bnc" id="L410" title="All 2 branches missed.">                if (gapAction != null) {</span>
+<span class="nc" id="L411">                    ((MOSchedulingInformation) gapAction.getSchedulingInfo()).unlock();</span>
+                }
+<span class="nc" id="L413">            }</span>
+<span class="nc" id="L414">        }</span>
+
+<span class="nc" id="L416">        Implementation impl = action.getAssignedImplementation();</span>
+<span class="nc" id="L417">        MOProfile p = (MOProfile) getProfile(impl);</span>
+<span class="nc bnc" id="L418" title="All 2 branches missed.">        if (p != null) {</span>
+<span class="nc" id="L419">            long length =</span>
+<span class="nc bnc" id="L420" title="All 2 branches missed.">                actionDSI.getExpectedEnd() - (actionDSI.getExpectedStart() &lt; 0 ? 0 : actionDSI.getExpectedStart());</span>
+<span class="nc" id="L421">            this.pendingActionsCost -= p.getPrice() * length;</span>
+<span class="nc" id="L422">            this.pendingActionsEnergy -= p.getPower() * length;</span>
+        }
+<span class="nc" id="L424">        actionDSI.unlock();</span>
+<span class="nc bnc" id="L425" title="All 2 branches missed.">        for (MOSchedulingInformation successorsDSI : successorsDSIs) {</span>
+<span class="nc" id="L426">            successorsDSI.unlock();</span>
+<span class="nc" id="L427">        }</span>
+<span class="nc" id="L428">        LOGGER.debug(LOG_PREFIX + &quot;Returning &quot; + freeActions.size() + &quot; free actions.&quot;);</span>
+<span class="nc" id="L429">        return freeActions;</span>
+    }
+
+    @Override
+    public void clear() {
+<span class="nc" id="L434">        super.clear();</span>
+<span class="nc" id="L435">        this.gaps.clear();</span>
+<span class="nc" id="L436">        addGap(new Gap(Long.MIN_VALUE, Long.MAX_VALUE, null, this.myWorker.getDescription().copy(), 0));</span>
+<span class="nc" id="L437">    }</span>
+
+    private void scheduleUsingGaps(AllocatableAction action, List&lt;Gap&gt; gaps) {
+<span class="nc" id="L440">        long expectedStart = 0;</span>
+        // Compute start time due to data dependencies
+<span class="nc bnc" id="L442" title="All 2 branches missed.">        for (AllocatableAction predecessor : action.getDataPredecessors()) {</span>
+<span class="nc" id="L443">            MOSchedulingInformation predDSI = ((MOSchedulingInformation) predecessor.getSchedulingInfo());</span>
+<span class="nc bnc" id="L444" title="All 2 branches missed.">            if (predDSI.isScheduled()) {</span>
+<span class="nc" id="L445">                long predEnd = predDSI.getExpectedEnd();</span>
+<span class="nc" id="L446">                expectedStart = Math.max(expectedStart, predEnd);</span>
+            }
+<span class="nc" id="L448">        }</span>
+<span class="nc" id="L449">        MOSchedulingInformation schedInfo = (MOSchedulingInformation) action.getSchedulingInfo();</span>
+
+<span class="nc bnc" id="L451" title="All 2 branches missed.">        if (expectedStart == Long.MAX_VALUE) {</span>
+            // There is some data dependency with blocked tasks in some resource
+<span class="nc" id="L453">            final Gap opActionGap =</span>
+<span class="nc" id="L454">                new Gap(0, 0, this.dataBlockingAction, action.getAssignedImplementation().getRequirements().copy(), 0);</span>
+<span class="nc" id="L455">            MOSchedulingInformation dbaDSI = (MOSchedulingInformation) this.dataBlockingAction.getSchedulingInfo();</span>
+<span class="nc" id="L456">            dbaDSI.lock();</span>
+<span class="nc" id="L457">            schedInfo.lock();</span>
+<span class="nc" id="L458">            dbaDSI.addSuccessor(action);</span>
+<span class="nc" id="L459">            schedInfo.addPredecessor(opActionGap);</span>
+<span class="nc" id="L460">            schedInfo.setExpectedStart(Long.MAX_VALUE);</span>
+<span class="nc" id="L461">            schedInfo.setExpectedEnd(Long.MAX_VALUE);</span>
+<span class="nc" id="L462">            schedInfo.scheduled();</span>
+<span class="nc" id="L463">            dbaDSI.unlock();</span>
+<span class="nc" id="L464">            schedInfo.unlock();</span>
+<span class="nc" id="L465">            return;</span>
+        }
+
+<span class="nc" id="L468">        Implementation impl = action.getAssignedImplementation();</span>
+<span class="nc" id="L469">        final MOProfile p = (MOProfile) getProfile(impl);</span>
+<span class="nc" id="L470">        ResourceDescription constraints = impl.getRequirements().copy();</span>
+<span class="nc" id="L471">        List&lt;Gap&gt; predecessors = new LinkedList&lt;&gt;();</span>
+<span class="nc" id="L472">        Iterator&lt;Gap&gt; gapIt = ((LinkedList&lt;Gap&gt;) gaps).descendingIterator();</span>
+<span class="nc" id="L473">        boolean fullyCoveredReqs = false;</span>
+        // Compute predecessors and update gaps
+        // Check gaps before data start
+<span class="nc bnc" id="L476" title="All 4 branches missed.">        while (gapIt.hasNext() &amp;&amp; !fullyCoveredReqs) {</span>
+<span class="nc" id="L477">            Gap gap = gapIt.next();</span>
+<span class="nc bnc" id="L478" title="All 2 branches missed.">            if (gap.getInitialTime() &lt;= expectedStart) {</span>
+<span class="nc" id="L479">                useGap(gap, constraints, predecessors);</span>
+<span class="nc" id="L480">                fullyCoveredReqs = constraints.isDynamicUseless();</span>
+<span class="nc bnc" id="L481" title="All 2 branches missed.">                if (gap.getResources().isDynamicUseless()) {</span>
+<span class="nc" id="L482">                    gapIt.remove();</span>
+                }
+            }
+<span class="nc" id="L485">        }</span>
+        // Check gaps after data start
+<span class="nc" id="L487">        gapIt = gaps.iterator();</span>
+<span class="nc bnc" id="L488" title="All 4 branches missed.">        while (gapIt.hasNext() &amp;&amp; !fullyCoveredReqs) {</span>
+<span class="nc" id="L489">            Gap gap = gapIt.next();</span>
+<span class="nc bnc" id="L490" title="All 2 branches missed.">            if (gap.getInitialTime() &gt; expectedStart) {</span>
+<span class="nc bnc" id="L491" title="All 2 branches missed.">                if (gap.getInitialTime() &lt; Long.MAX_VALUE) {</span>
+<span class="nc" id="L492">                    useGap(gap, constraints, predecessors);</span>
+<span class="nc" id="L493">                    fullyCoveredReqs = constraints.isDynamicUseless();</span>
+<span class="nc bnc" id="L494" title="All 2 branches missed.">                    if (gap.getResources().isDynamicUseless()) {</span>
+<span class="nc" id="L495">                        gapIt.remove();</span>
+                    }
+                }
+            }
+<span class="nc" id="L499">        }</span>
+
+<span class="nc bnc" id="L501" title="All 2 branches missed.">        if (!fullyCoveredReqs) {</span>
+            // Action gets blocked due to lack of resources
+<span class="nc bnc" id="L503" title="All 2 branches missed.">            for (Gap pGap : predecessors) {</span>
+<span class="nc" id="L504">                addGap(pGap);</span>
+<span class="nc" id="L505">                AllocatableAction predecessor = (AllocatableAction) pGap.getOrigin();</span>
+<span class="nc bnc" id="L506" title="All 2 branches missed.">                if (predecessor != null) {</span>
+<span class="nc" id="L507">                    MOSchedulingInformation predDSI = ((MOSchedulingInformation) predecessor.getSchedulingInfo());</span>
+<span class="nc" id="L508">                    predDSI.unlock();</span>
+                }
+<span class="nc" id="L510">            }</span>
+<span class="nc" id="L511">            final Gap opActionGap =</span>
+<span class="nc" id="L512">                new Gap(0, 0, this.resourceBlockingAction, action.getAssignedImplementation().getRequirements(), 0);</span>
+<span class="nc" id="L513">            MOSchedulingInformation rbaDSI = (MOSchedulingInformation) this.resourceBlockingAction.getSchedulingInfo();</span>
+<span class="nc" id="L514">            rbaDSI.lock();</span>
+<span class="nc" id="L515">            schedInfo.lock();</span>
+<span class="nc" id="L516">            rbaDSI.addSuccessor(action);</span>
+<span class="nc" id="L517">            schedInfo.addPredecessor(opActionGap);</span>
+<span class="nc" id="L518">            schedInfo.scheduled();</span>
+<span class="nc" id="L519">            schedInfo.setExpectedStart(Long.MAX_VALUE);</span>
+<span class="nc" id="L520">            schedInfo.setExpectedEnd(Long.MAX_VALUE);</span>
+<span class="nc" id="L521">            rbaDSI.unlock();</span>
+<span class="nc" id="L522">            schedInfo.unlock();</span>
+<span class="nc" id="L523">            return;</span>
+        }
+
+        // Lock access to the current task
+<span class="nc" id="L527">        schedInfo.lock();</span>
+<span class="nc" id="L528">        schedInfo.scheduled();</span>
+
+        // Add dependencies
+        // Unlock access to predecessor
+<span class="nc" id="L532">        StringBuilder sb = null;</span>
+<span class="nc bnc" id="L533" title="All 2 branches missed.">        if (IS_DEBUG) {</span>
+<span class="nc" id="L534">            sb = new StringBuilder(&quot;Predecessors: &quot;);</span>
+        }
+<span class="nc bnc" id="L536" title="All 2 branches missed.">        for (Gap pGap : predecessors) {</span>
+<span class="nc" id="L537">            AllocatableAction predecessor = pGap.getOrigin();</span>
+<span class="nc bnc" id="L538" title="All 2 branches missed.">            if (predecessor != null) {</span>
+<span class="nc" id="L539">                MOSchedulingInformation predDSI = ((MOSchedulingInformation) predecessor.getSchedulingInfo());</span>
+<span class="nc bnc" id="L540" title="All 2 branches missed.">                if (predDSI.isScheduled()) {</span>
+<span class="nc" id="L541">                    long predEnd = predDSI.getExpectedEnd();</span>
+<span class="nc" id="L542">                    expectedStart = Math.max(expectedStart, predEnd);</span>
+<span class="nc" id="L543">                    predDSI.addSuccessor(action);</span>
+                }
+<span class="nc" id="L545">                predDSI.unlock();</span>
+            }
+<span class="nc" id="L547">            schedInfo.addPredecessor(pGap);</span>
+<span class="nc bnc" id="L548" title="All 2 branches missed.">            if (IS_DEBUG) {</span>
+<span class="nc" id="L549">                sb.append(pGap.getOrigin()).append(&quot; with &quot;).append(pGap.getResources().getDynamicDescription())</span>
+<span class="nc" id="L550">                    .append(&quot;, &quot;);</span>
+            }
+<span class="nc" id="L552">        }</span>
+
+        // Compute end time
+<span class="nc" id="L555">        schedInfo.setExpectedStart(expectedStart);</span>
+<span class="nc" id="L556">        long expectedEnd = expectedStart;</span>
+<span class="nc bnc" id="L557" title="All 2 branches missed.">        if (p != null) {</span>
+<span class="nc" id="L558">            expectedEnd += p.getAverageExecutionTime();</span>
+<span class="nc" id="L559">            this.pendingActionsCost += p.getPrice() * p.getAverageExecutionTime();</span>
+<span class="nc" id="L560">            this.pendingActionsEnergy += p.getPower() * p.getAverageExecutionTime();</span>
+        }
+<span class="nc" id="L562">        schedInfo.setExpectedEnd(expectedEnd);</span>
+        // Unlock access to current task
+<span class="nc" id="L564">        schedInfo.unlock();</span>
+<span class="nc bnc" id="L565" title="All 2 branches missed.">        if (action.isToReleaseResources()) {</span>
+            // Create new Gap corresponding to the resources released by the action
+<span class="nc" id="L567">            addGap(new Gap(expectedEnd, Long.MAX_VALUE, action, impl.getRequirements().copy(), 0));</span>
+        } else {
+<span class="nc" id="L569">            addGap(new Gap(Long.MAX_VALUE, Long.MAX_VALUE, action, impl.getRequirements().copy(), 0));</span>
+        }
+<span class="nc bnc" id="L571" title="All 2 branches missed.">        if (IS_DEBUG) {</span>
+<span class="nc" id="L572">            LOGGER.debug(LOG_PREFIX + &quot;Scheduled &quot; + action.toString() + &quot;. Interval [ &quot; + expectedStart + &quot; - &quot;</span>
+<span class="nc" id="L573">                + expectedEnd + &quot;] &quot; + sb.toString());</span>
+        }
+<span class="nc" id="L575">    }</span>
+
+    private void useGap(Gap gap, ResourceDescription resources, List&lt;Gap&gt; predecessors) {
+<span class="nc" id="L578">        AllocatableAction predecessor = (AllocatableAction) gap.getOrigin();</span>
+<span class="nc" id="L579">        ResourceDescription gapResource = gap.getResources();</span>
+<span class="nc" id="L580">        ResourceDescription usedResources = ResourceDescription.reduceCommonDynamics(gapResource, resources);</span>
+<span class="nc bnc" id="L581" title="All 2 branches missed.">        if (usedResources.isDynamicConsuming()) {</span>
+<span class="nc bnc" id="L582" title="All 2 branches missed.">            if (predecessor != null) {</span>
+<span class="nc" id="L583">                MOSchedulingInformation predDSI = ((MOSchedulingInformation) predecessor.getSchedulingInfo());</span>
+<span class="nc" id="L584">                predDSI.lock();</span>
+            }
+<span class="nc" id="L586">            Gap g = new Gap(gap.getInitialTime(), Long.MAX_VALUE, predecessor, usedResources, 0);</span>
+<span class="nc" id="L587">            predecessors.add(g);</span>
+        }
+<span class="nc" id="L589">    }</span>
+
+    /*--------------------------------------------------
+     ---------------------------------------------------
+     -------------- Optimization Methods ---------------
+     ---------------------------------------------------
+     --------------------------------------------------*/
+
+    /**
+     * Performs a local optimization.
+     * 
+     * @param updateId Optimization update id.
+     * @param selectionComparator Action selection comparator.
+     * @param donorComparator Action donor comparator.
+     * @return Queue of optimized actions.
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public PriorityQueue&lt;AllocatableAction&gt; localOptimization(long updateId,
+        Comparator&lt;AllocatableAction&gt; selectionComparator, Comparator&lt;AllocatableAction&gt; donorComparator) {
+
+        // System.out.println(&quot;Local Optimization for &quot; + this.getName() + &quot; starts&quot;);
+<span class="nc" id="L610">        LocalOptimizationState state = new LocalOptimizationState(updateId,</span>
+<span class="nc" id="L611">            (MOResourceScheduler&lt;WorkerResourceDescription&gt;) this, getReadyComparator(), selectionComparator);</span>
+<span class="nc" id="L612">        final PriorityQueue&lt;AllocatableAction&gt; actions = new PriorityQueue&lt;AllocatableAction&gt;(1, donorComparator);</span>
+
+<span class="nc" id="L614">        synchronized (this.gaps) {</span>
+<span class="nc" id="L615">            this.opAction = new OptimizationAction();</span>
+<span class="nc" id="L616">        }</span>
+        // No changes in the Gap structure
+
+        // Scan actions: Filters ready and selectable actions
+<span class="nc" id="L620">        LOGGER.debug(LOG_PREFIX + &quot;Scanning current actions&quot;);</span>
+<span class="nc" id="L621">        final List&lt;AllocatableAction&gt; lockedActions = scanActions(state);</span>
+        // Gets all the pending schedulings
+<span class="nc" id="L623">        List&lt;AllocatableAction&gt; newPendingSchedulings = new LinkedList&lt;&gt;();</span>
+        List&lt;AllocatableAction&gt; pendingSchedulings;
+<span class="nc" id="L625">        synchronized (this.gaps) {</span>
+<span class="nc" id="L626">            MOSchedulingInformation opDSI = (MOSchedulingInformation) this.opAction.getSchedulingInfo();</span>
+<span class="nc" id="L627">            pendingSchedulings = opDSI.replaceSuccessors(newPendingSchedulings);</span>
+<span class="nc" id="L628">        }</span>
+        // Classify pending actions: Filters ready and selectable actions
+<span class="nc" id="L630">        LOGGER.debug(LOG_PREFIX + &quot;Classify Pending Scheduling/Unscheduling actions&quot;);</span>
+<span class="nc" id="L631">        classifyPendingSchedulings(pendingSchedulings, state);</span>
+<span class="nc" id="L632">        classifyPendingUnschedulings(state);</span>
+
+        // ClassifyActions
+<span class="nc" id="L635">        LOGGER.debug(LOG_PREFIX + &quot;Reschedule pending actions&quot;);</span>
+<span class="nc" id="L636">        List&lt;Gap&gt; newGaps = rescheduleTasks(state, actions);</span>
+        // Ensuring there are no locked actions after rescheduling
+<span class="nc bnc" id="L638" title="All 2 branches missed.">        for (AllocatableAction action : lockedActions) {</span>
+<span class="nc" id="L639">            MOSchedulingInformation actionDSI = (MOSchedulingInformation) action.getSchedulingInfo();</span>
+            try {
+<span class="nc" id="L641">                actionDSI.unlock();</span>
+<span class="nc" id="L642">            } catch (IllegalMonitorStateException e) {</span>
+<span class="nc" id="L643">                LOGGER.debug(LOG_PREFIX + &quot;Illegal Monitor Exception when releasing locked actions. Ignoring...&quot;);</span>
+<span class="nc" id="L644">            }</span>
+<span class="nc" id="L645">        }</span>
+        /*
+         * System.out.println(&quot;\t is running: &quot;); for (AllocatableAction aa : state.getRunningActions()) {
+         * System.out.println(&quot;\t\t&quot; + aa + &quot; with implementation &quot; + ((aa.getAssignedImplementation() == null) ? &quot;null&quot;
+         * : aa .getAssignedImplementation().getImplementationId()) + &quot; started &quot; + ((aa.getStartTime() == null) ? &quot;-&quot; :
+         * (System .currentTimeMillis() - aa.getStartTime())));
+         * 
+         * }
+         * 
+         * System.out.println(this.getName() + &quot; has no resources for: &quot;); for (AllocatableAction aa :
+         * this.resourceBlockingAction .getDataSuccessors()) { System.out .println(&quot;\t&quot; + aa + &quot; with&quot; +
+         * &quot; implementation &quot; + ((aa.getAssignedImplementation() == null) ? &quot;null&quot; : aa.getAssignedImplementation()
+         * .getImplementationId())); } System.out .println(this.getName() +
+         * &quot; will wait for data producers to be rescheduled for actions:&quot;); for (AllocatableAction aa :
+         * this.dataBlockingAction.getDataSuccessors()) { System.out .println(&quot;\t&quot; + aa + &quot; with&quot; + &quot; implementation &quot; +
+         * ((aa.getAssignedImplementation() == null) ? &quot;null&quot; : aa.getAssignedImplementation() .getImplementationId()));
+         * }
+         */
+
+        // Schedules all the pending scheduligns and unblocks the scheduling of new actions
+<span class="nc" id="L665">        LOGGER.debug(LOG_PREFIX + &quot;Manage new gaps&quot;);</span>
+<span class="nc" id="L666">        synchronized (gaps) {</span>
+<span class="nc" id="L667">            this.gaps.clear();</span>
+<span class="nc" id="L668">            this.gaps.addAll(newGaps);</span>
+<span class="nc" id="L669">            MOSchedulingInformation opDSI = (MOSchedulingInformation) this.opAction.getSchedulingInfo();</span>
+<span class="nc" id="L670">            List&lt;AllocatableAction&gt; successors = opDSI.getSuccessors();</span>
+<span class="nc bnc" id="L671" title="All 2 branches missed.">            for (AllocatableAction action : successors) {</span>
+<span class="nc" id="L672">                actions.add(action);</span>
+<span class="nc" id="L673">                MOSchedulingInformation actionDSI = (MOSchedulingInformation) action.getSchedulingInfo();</span>
+<span class="nc" id="L674">                actionDSI.lock();</span>
+<span class="nc" id="L675">                actionDSI.removePredecessor(this.opAction);</span>
+<span class="nc" id="L676">                this.scheduleUsingGaps(action, this.gaps);</span>
+<span class="nc" id="L677">                actionDSI.unlock();</span>
+<span class="nc" id="L678">            }</span>
+<span class="nc" id="L679">            opDSI.clearSuccessors();</span>
+<span class="nc" id="L680">            this.opAction = null;</span>
+<span class="nc" id="L681">        }</span>
+        // System.out.println(&quot;Local Optimization for &quot; + this.getName() + &quot; ends&quot;);
+<span class="nc" id="L683">        return actions;</span>
+    }
+
+    /**
+     * Classifies actions according to their start times. Selectable actions are those that can be selected to run from
+     * t=0. Ready actions are those actions that have data dependencies with tasks scheduled in other nodes. Actions
+     * with dependencies with actions scheduled in the same node, are not classified in any list since we cannot know
+     * the start time.
+     * 
+     * @param state Current state.
+     * @return List of scanned actions.
+     */
+    public List&lt;AllocatableAction&gt; scanActions(LocalOptimizationState state) {
+<span class="nc" id="L696">        List&lt;AllocatableAction&gt; pendingToUnlockActions = new LinkedList&lt;AllocatableAction&gt;();</span>
+<span class="nc" id="L697">        PriorityQueue&lt;AllocatableAction&gt; actions = new PriorityQueue&lt;AllocatableAction&gt;(1, getScanComparator());</span>
+<span class="nc" id="L698">        MOSchedulingInformation blockSI = (MOSchedulingInformation) this.dataBlockingAction.getSchedulingInfo();</span>
+<span class="nc" id="L699">        List&lt;AllocatableAction&gt; blockActions = blockSI.getSuccessors();</span>
+<span class="nc bnc" id="L700" title="All 2 branches missed.">        for (AllocatableAction gapAction : blockActions) {</span>
+<span class="nc" id="L701">            MOSchedulingInformation dsi = (MOSchedulingInformation) gapAction.getSchedulingInfo();</span>
+<span class="nc" id="L702">            dsi.lock();</span>
+<span class="nc" id="L703">            dsi.setOnOptimization(true);</span>
+<span class="nc" id="L704">            actions.add(gapAction);</span>
+<span class="nc" id="L705">        }</span>
+
+<span class="nc" id="L707">        blockSI = (MOSchedulingInformation) this.resourceBlockingAction.getSchedulingInfo();</span>
+<span class="nc" id="L708">        blockActions = blockSI.getSuccessors();</span>
+<span class="nc bnc" id="L709" title="All 2 branches missed.">        for (AllocatableAction gapAction : blockActions) {</span>
+<span class="nc" id="L710">            MOSchedulingInformation dsi = (MOSchedulingInformation) gapAction.getSchedulingInfo();</span>
+<span class="nc" id="L711">            dsi.lock();</span>
+<span class="nc" id="L712">            dsi.setOnOptimization(true);</span>
+<span class="nc" id="L713">            actions.add(gapAction);</span>
+<span class="nc" id="L714">        }</span>
+<span class="nc" id="L715">        LinkedList&lt;AllocatableAction&gt; modified = new LinkedList&lt;&gt;();</span>
+        while (true) {
+            try {
+<span class="nc bnc" id="L718" title="All 2 branches missed.">                for (Gap g : this.gaps) {</span>
+<span class="nc" id="L719">                    AllocatableAction gapAction = g.getOrigin();</span>
+<span class="nc bnc" id="L720" title="All 2 branches missed.">                    if (gapAction != null) {</span>
+<span class="nc" id="L721">                        MOSchedulingInformation dsi = (MOSchedulingInformation) gapAction.getSchedulingInfo();</span>
+<span class="nc" id="L722">                        dsi.lock();</span>
+<span class="nc" id="L723">                        dsi.setOnOptimization(true);</span>
+<span class="nc" id="L724">                        modified.add(gapAction);</span>
+                    }
+<span class="nc" id="L726">                }</span>
+<span class="nc" id="L727">                break;</span>
+<span class="nc" id="L728">            } catch (ConcurrentModificationException cme) {</span>
+<span class="nc bnc" id="L729" title="All 2 branches missed.">                for (AllocatableAction action : modified) {</span>
+<span class="nc" id="L730">                    MOSchedulingInformation dsi = (MOSchedulingInformation) action.getSchedulingInfo();</span>
+<span class="nc" id="L731">                    dsi.setOnOptimization(false);</span>
+<span class="nc" id="L732">                    dsi.unlock();</span>
+<span class="nc" id="L733">                }</span>
+<span class="nc" id="L734">                modified.clear();</span>
+<span class="nc" id="L735">            }</span>
+        }
+<span class="nc" id="L737">        actions.addAll(modified);</span>
+
+        AllocatableAction action;
+<span class="nc bnc" id="L740" title="All 2 branches missed.">        while ((action = actions.poll()) != null) {</span>
+<span class="nc" id="L741">            MOSchedulingInformation actionDSI = (MOSchedulingInformation) action.getSchedulingInfo();</span>
+            // System.out.println(&quot; ** Evaluating Action &quot;+ action + &quot; with SI: &quot;+ actionDSI.hashCode());
+<span class="nc bnc" id="L743" title="All 2 branches missed.">            if (!actionDSI.isScheduled()) {</span>
+                try {
+<span class="nc" id="L745">                    actionDSI.unlock();</span>
+<span class="nc" id="L746">                } catch (IllegalMonitorStateException e) {</span>
+<span class="nc" id="L747">                    LOGGER.debug(LOG_PREFIX + &quot;Illegal Monitor Exception scaning actions. Ignoring...&quot;);</span>
+<span class="nc" id="L748">                }</span>
+                // Task was already executed. Ignore
+                // System.out.println(&quot; ** End Action &quot;+ action + &quot; with SI: &quot;+ actionDSI.hashCode()+ &quot; because not
+                // scheduled &quot;);
+<span class="nc" id="L752">                continue;</span>
+            }
+
+            // Data Dependencies analysis
+<span class="nc" id="L756">            boolean hasInternal = false;</span>
+<span class="nc" id="L757">            boolean hasExternal = false;</span>
+<span class="nc" id="L758">            long startTime = 0;</span>
+            while (true) {
+<span class="nc" id="L760">                List&lt;MOSchedulingInformation&gt; managedDSIs = new LinkedList&lt;&gt;();</span>
+                try {
+<span class="nc" id="L762">                    List&lt;AllocatableAction&gt; dPreds = action.getDataPredecessors();</span>
+<span class="nc bnc" id="L763" title="All 2 branches missed.">                    for (AllocatableAction dPred : dPreds) {</span>
+<span class="nc" id="L764">                        MOSchedulingInformation dPredDSI = (MOSchedulingInformation) dPred.getSchedulingInfo();</span>
+<span class="nc bnc" id="L765" title="All 2 branches missed.">                        if (dPred.getAssignedResource() == this) {</span>
+<span class="nc bnc" id="L766" title="All 2 branches missed.">                            if (dPredDSI.tryToLock()) {</span>
+<span class="nc bnc" id="L767" title="All 2 branches missed.">                                if (dPredDSI.isScheduled()) {</span>
+<span class="nc" id="L768">                                    hasInternal = true;</span>
+<span class="nc" id="L769">                                    dPredDSI.addOptimizingSuccessor(action);</span>
+<span class="nc" id="L770">                                    managedDSIs.add(dPredDSI);</span>
+                                }
+<span class="nc" id="L772">                                dPredDSI.unlock();</span>
+                            }
+                            // else
+                            // The predecessor is trying to be unscheduled but it is
+                            // blocked by another successor reschedule.
+                        } else {
+<span class="nc" id="L778">                            hasExternal = true;</span>
+<span class="nc" id="L779">                            startTime = Math.max(startTime, dPredDSI.getExpectedEnd());</span>
+                        }
+<span class="nc" id="L781">                    }</span>
+<span class="nc" id="L782">                    break;</span>
+<span class="nc" id="L783">                } catch (ConcurrentModificationException cme) {</span>
+<span class="nc bnc" id="L784" title="All 2 branches missed.">                    for (MOSchedulingInformation dsi : managedDSIs) {</span>
+<span class="nc" id="L785">                        dsi.removeOptimizingSuccessor(action);</span>
+<span class="nc" id="L786">                    }</span>
+                }
+<span class="nc" id="L788">            }</span>
+            // Resource Dependencies analysis
+<span class="nc" id="L790">            boolean hasResourcePredecessors = false;</span>
+<span class="nc" id="L791">            List&lt;Gap&gt; rPredGaps = actionDSI.getPredecessors();</span>
+<span class="nc bnc" id="L792" title="All 2 branches missed.">            for (Gap rPredGap : rPredGaps) {</span>
+<span class="nc" id="L793">                AllocatableAction rPred = rPredGap.getOrigin();</span>
+<span class="nc bnc" id="L794" title="All 2 branches missed.">                if (rPred != null) {</span>
+<span class="nc" id="L795">                    MOSchedulingInformation rPredDSI = (MOSchedulingInformation) rPred.getSchedulingInfo();</span>
+<span class="nc bnc" id="L796" title="All 2 branches missed.">                    if (rPredDSI.tryToLock()) {</span>
+<span class="nc bnc" id="L797" title="All 2 branches missed.">                        if (rPredDSI.isScheduled()) {</span>
+<span class="nc" id="L798">                            hasResourcePredecessors = true;</span>
+<span class="nc bnc" id="L799" title="All 2 branches missed.">                            if (!rPredDSI.isOnOptimization()) {</span>
+<span class="nc" id="L800">                                rPredDSI.setOnOptimization(true);</span>
+<span class="nc" id="L801">                                actions.add(rPred);</span>
+                            } else {
+<span class="nc" id="L803">                                rPredDSI.unlock();</span>
+                            }
+                        } else {
+<span class="nc" id="L806">                            rPredDSI.unlock();</span>
+                        }
+                    }
+                }
+                // else the predecessor was already executed
+<span class="nc" id="L811">            }</span>
+<span class="nc" id="L812">            actionDSI.setExpectedStart(startTime);</span>
+<span class="nc" id="L813">            actionDSI.setToReschedule(true);</span>
+            // System.out.println(&quot; ** Classifiying Action &quot;+ action + &quot; with SI: &quot;+ actionDSI.hashCode());
+<span class="nc" id="L815">            state.classifyAction(action, hasInternal, hasExternal, hasResourcePredecessors, startTime);</span>
+<span class="nc bnc" id="L816" title="All 4 branches missed.">            if (hasResourcePredecessors || hasInternal) {</span>
+                // The action has a blocked predecessor in the resource that will block its execution
+<span class="nc" id="L818">                actionDSI.unlock();</span>
+            } else {
+<span class="nc" id="L820">                pendingToUnlockActions.add(action);</span>
+            }
+            // System.out.println(&quot; ** END evaluation Action &quot;+ action + &quot; with SI: &quot;+ actionDSI.hashCode());
+<span class="nc" id="L823">        }</span>
+<span class="nc" id="L824">        return pendingToUnlockActions;</span>
+    }
+
+    /**
+     * Classify pending schedulings.
+     * 
+     * @param pendingSchedulings Pending schedulings to classify.
+     * @param state Current state.
+     */
+    public void classifyPendingSchedulings(List&lt;AllocatableAction&gt; pendingSchedulings, LocalOptimizationState state) {
+<span class="nc bnc" id="L834" title="All 2 branches missed.">        for (AllocatableAction action : pendingSchedulings) {</span>
+            // Action has an artificial resource dependency with the opAction
+<span class="nc" id="L836">            MOSchedulingInformation actionDSI = (MOSchedulingInformation) action.getSchedulingInfo();</span>
+<span class="nc" id="L837">            actionDSI.scheduled();</span>
+<span class="nc" id="L838">            actionDSI.setOnOptimization(true);</span>
+<span class="nc" id="L839">            actionDSI.setToReschedule(true);</span>
+            // Data Dependencies analysis
+<span class="nc" id="L841">            boolean hasInternal = false;</span>
+<span class="nc" id="L842">            boolean hasExternal = false;</span>
+<span class="nc" id="L843">            long startTime = 0;</span>
+            try {
+<span class="nc" id="L845">                List&lt;AllocatableAction&gt; dPreds = action.getDataPredecessors();</span>
+<span class="nc bnc" id="L846" title="All 2 branches missed.">                for (AllocatableAction dPred : dPreds) {</span>
+<span class="nc" id="L847">                    MOSchedulingInformation dPredDSI = (MOSchedulingInformation) dPred.getSchedulingInfo();</span>
+<span class="nc bnc" id="L848" title="All 2 branches missed.">                    if (dPred.getAssignedResource() == this) {</span>
+<span class="nc bnc" id="L849" title="All 2 branches missed.">                        if (dPredDSI.tryToLock()) {</span>
+<span class="nc bnc" id="L850" title="All 2 branches missed.">                            if (dPredDSI.isScheduled()) {</span>
+<span class="nc" id="L851">                                hasInternal = true;</span>
+<span class="nc" id="L852">                                dPredDSI.addOptimizingSuccessor(action);</span>
+                            }
+<span class="nc" id="L854">                            dPredDSI.unlock();</span>
+                        }
+                        // else
+                        // The predecessor is trying to be unscheduled but it is
+                        // blocked by another successor reschedule.
+                    } else {
+<span class="nc" id="L860">                        hasExternal = true;</span>
+<span class="nc" id="L861">                        startTime = Math.max(startTime, dPredDSI.getExpectedEnd());</span>
+                    }
+<span class="nc" id="L863">                }</span>
+<span class="nc" id="L864">            } catch (ConcurrentModificationException cme) {</span>
+<span class="nc" id="L865">                hasInternal = false;</span>
+<span class="nc" id="L866">                hasExternal = false;</span>
+<span class="nc" id="L867">                startTime = 0;</span>
+<span class="nc" id="L868">            }</span>
+
+<span class="nc" id="L870">            actionDSI.setExpectedStart(startTime);</span>
+<span class="nc" id="L871">            state.classifyAction(action, hasInternal, hasExternal, true, startTime);</span>
+<span class="nc" id="L872">        }</span>
+<span class="nc" id="L873">    }</span>
+
+    /**
+     * Classify pending unschedulings.
+     * 
+     * @param state Current state.
+     */
+    public void classifyPendingUnschedulings(LocalOptimizationState state) {
+<span class="nc bnc" id="L881" title="All 2 branches missed.">        for (AllocatableAction unscheduledAction : this.pendingUnschedulings) {</span>
+<span class="nc" id="L882">            MOSchedulingInformation actionDSI = (MOSchedulingInformation) unscheduledAction.getSchedulingInfo();</span>
+<span class="nc" id="L883">            List&lt;AllocatableAction&gt; successors = actionDSI.getOptimizingSuccessors();</span>
+<span class="nc bnc" id="L884" title="All 2 branches missed.">            for (AllocatableAction successor : successors) {</span>
+                // Data Dependencies analysis
+<span class="nc" id="L886">                boolean hasInternal = false;</span>
+<span class="nc" id="L887">                boolean hasExternal = false;</span>
+<span class="nc" id="L888">                long startTime = 0;</span>
+                try {
+<span class="nc" id="L890">                    List&lt;AllocatableAction&gt; dPreds = successor.getDataPredecessors();</span>
+<span class="nc bnc" id="L891" title="All 2 branches missed.">                    for (AllocatableAction dPred : dPreds) {</span>
+<span class="nc" id="L892">                        MOSchedulingInformation dPredDSI = (MOSchedulingInformation) dPred.getSchedulingInfo();</span>
+<span class="nc bnc" id="L893" title="All 2 branches missed.">                        if (dPred.getAssignedResource() == this) {</span>
+<span class="nc bnc" id="L894" title="All 2 branches missed.">                            if (dPredDSI.tryToLock()) {</span>
+<span class="nc bnc" id="L895" title="All 2 branches missed.">                                if (dPredDSI.isScheduled()) {</span>
+<span class="nc" id="L896">                                    hasInternal = true;</span>
+<span class="nc" id="L897">                                    dPredDSI.addOptimizingSuccessor(successor);</span>
+                                }
+<span class="nc" id="L899">                                dPredDSI.unlock();</span>
+                            }
+                            // else
+                            // The predecessor is trying to be unscheduled but it is
+                            // blocked by another successor reschedule.
+                        } else {
+<span class="nc" id="L905">                            hasExternal = true;</span>
+<span class="nc" id="L906">                            startTime = Math.max(startTime, dPredDSI.getExpectedEnd());</span>
+                        }
+<span class="nc" id="L908">                    }</span>
+<span class="nc" id="L909">                } catch (ConcurrentModificationException cme) {</span>
+<span class="nc" id="L910">                    hasInternal = false;</span>
+<span class="nc" id="L911">                    hasExternal = false;</span>
+<span class="nc" id="L912">                    startTime = 0;</span>
+<span class="nc" id="L913">                }</span>
+
+<span class="nc" id="L915">                actionDSI.setExpectedStart(startTime);</span>
+<span class="nc" id="L916">                state.classifyAction(successor, hasInternal, hasExternal, true, startTime);</span>
+<span class="nc" id="L917">            }</span>
+<span class="nc" id="L918">        }</span>
+<span class="nc" id="L919">        this.pendingUnschedulings.clear();</span>
+<span class="nc" id="L920">    }</span>
+
+    /**
+     * Re-schedules the given actions.
+     * 
+     * @param state Current state.
+     * @param rescheduledActions Actions to reschedule.
+     * @return List of generated gaps.
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public List&lt;Gap&gt; rescheduleTasks(LocalOptimizationState state,
+        PriorityQueue&lt;AllocatableAction&gt; rescheduledActions) {
+<span class="nc" id="L932">        this.runActionsCost = 0;</span>
+<span class="nc" id="L933">        this.runActionsEnergy = 0;</span>
+<span class="nc bnc" id="L934" title="All 2 branches missed.">        for (int coreId = 0; coreId &lt; CoreManager.getCoreCount(); coreId++) {</span>
+<span class="nc bnc" id="L935" title="All 2 branches missed.">            for (int implId = 0; implId &lt; CoreManager.getNumberCoreImplementations(coreId); implId++) {</span>
+<span class="nc" id="L936">                MOProfile profile = (MOProfile) this.getProfile(coreId, implId);</span>
+<span class="nc" id="L937">                this.runActionsEnergy +=</span>
+<span class="nc" id="L938">                    profile.getPower() * profile.getExecutionCount() * profile.getAverageExecutionTime();</span>
+<span class="nc" id="L939">                this.runActionsCost +=</span>
+<span class="nc" id="L940">                    profile.getPrice() * profile.getExecutionCount() * profile.getAverageExecutionTime();</span>
+            }
+        }
+
+        /*
+         * 
+         * ReadyActions contains those actions that have no dependencies with other actions scheduled on the node, but
+         * they have data dependencies with tasks on other resources. They are sorted by the expected time when these
+         * dependencies will be solved.
+         *
+         * SelectableActions contains those actions that have no data dependencies with other actions but they wait for
+         * resources to be released.
+         * 
+         * Running actions contains a list of Actions that are executing or potentially executing at the moment.
+         * 
+         * All Actions that need to be rescheduled have the onOptimization and scheduled flags on.
+         * 
+         * Those actions that are running or could potentially be started ( no dependencies with other actions in the
+         * resource) are already locked to avoid their start without being on the runningActions set.
+         */
+<span class="nc" id="L960">        Gap gap = state.peekFirstGap();</span>
+<span class="nc" id="L961">        ResourceDescription gapResource = gap.getResources();</span>
+<span class="nc" id="L962">        PriorityQueue&lt;SchedulingEvent&gt; schedulingQueue = new PriorityQueue&lt;&gt;();</span>
+        // For every running action we create a start event on their real start timeStamp
+<span class="nc bnc" id="L964" title="All 2 branches missed.">        for (AllocatableAction action : state.getRunningActions()) {</span>
+<span class="nc" id="L965">            manageRunningAction(action, state);</span>
+<span class="nc" id="L966">            MOSchedulingInformation actionDSI = (MOSchedulingInformation) action.getSchedulingInfo();</span>
+<span class="nc" id="L967">            schedulingQueue.offer(new SchedulingEvent.End(actionDSI.getExpectedEnd(), action));</span>
+<span class="nc" id="L968">        }</span>
+<span class="nc bnc" id="L969" title="All 4 branches missed.">        while (state.areRunnableActions() &amp;&amp; !gapResource.isDynamicUseless()) {</span>
+<span class="nc" id="L970">            AllocatableAction top = state.getMostPrioritaryRunnableAction();</span>
+<span class="nc" id="L971">            state.replaceAction(top);</span>
+<span class="nc bnc" id="L972" title="All 2 branches missed.">            if (state.canActionRun()) {</span>
+<span class="nc" id="L973">                state.removeMostPrioritaryRunnableAction();</span>
+                // Start the current action
+<span class="nc" id="L975">                MOSchedulingInformation topDSI = (MOSchedulingInformation) top.getSchedulingInfo();</span>
+<span class="nc" id="L976">                topDSI.lock();</span>
+<span class="nc" id="L977">                topDSI.clearPredecessors();</span>
+<span class="nc" id="L978">                manageRunningAction(top, state);</span>
+<span class="nc bnc" id="L979" title="All 2 branches missed.">                if (tryToLaunch(top)) {</span>
+<span class="nc" id="L980">                    schedulingQueue.offer(new SchedulingEvent.End(topDSI.getExpectedEnd(), top));</span>
+                }
+            } else {
+                break;
+            }
+<span class="nc" id="L985">        }</span>
+<span class="nc bnc" id="L986" title="All 4 branches missed.">        while (!schedulingQueue.isEmpty() || state.areActionsToBeRescheduled()) {</span>
+            // We reschedule as many tasks as possible by processing start and end SchedulingEvents
+
+<span class="nc bnc" id="L989" title="All 2 branches missed.">            while (!schedulingQueue.isEmpty()) {</span>
+<span class="nc" id="L990">                SchedulingEvent e = schedulingQueue.poll();</span>
+                /*
+                 * Start Event: - sets the expected start and end times - adds resource dependencies with the previous
+                 * actions - if there's a gap before the dependency -tries to fill it with other tasks - if all the
+                 * resources released by the predecessor are used later - the action is unlocked
+                 *
+                 * End Event:
+                 * 
+                 */
+<span class="nc" id="L999">                List&lt;SchedulingEvent&gt; result =</span>
+<span class="nc" id="L1000">                    e.process(state, (MOResourceScheduler&lt;WorkerResourceDescription&gt;) this, rescheduledActions);</span>
+<span class="nc bnc" id="L1001" title="All 2 branches missed.">                for (SchedulingEvent r : result) {</span>
+<span class="nc" id="L1002">                    schedulingQueue.offer(r);</span>
+<span class="nc" id="L1003">                }</span>
+<span class="nc" id="L1004">            }</span>
+
+<span class="nc bnc" id="L1006" title="All 2 branches missed.">            if (state.areActionsToBeRescheduled()) {</span>
+<span class="nc" id="L1007">                AllocatableAction topAction = state.getEarliestActionToBeRescheduled();</span>
+<span class="nc" id="L1008">                MOSchedulingInformation topActionDSI = (MOSchedulingInformation) topAction.getSchedulingInfo();</span>
+<span class="nc" id="L1009">                topActionDSI.lock();</span>
+<span class="nc" id="L1010">                topActionDSI.setToReschedule(false);</span>
+<span class="nc" id="L1011">                schedulingQueue.offer(new SchedulingEvent.Start(topActionDSI.getExpectedStart(), topAction));</span>
+<span class="nc" id="L1012">            }</span>
+        }
+<span class="nc bnc" id="L1014" title="All 2 branches missed.">        for (Gap g : state.getGaps()) {</span>
+<span class="nc" id="L1015">            state.removeTmpGap(g);</span>
+<span class="nc" id="L1016">        }</span>
+<span class="nc" id="L1017">        this.pendingActionsCost = state.getTotalCost();</span>
+<span class="nc" id="L1018">        this.pendingActionsEnergy = state.getTotalEnergy();</span>
+<span class="nc" id="L1019">        this.implementationsCount = state.getImplementationsCount();</span>
+<span class="nc" id="L1020">        this.expectedEndTimeRunning = state.getEndRunningTime();</span>
+<span class="nc" id="L1021">        this.runningImplementationsCount = state.getRunningImplementations();</span>
+<span class="nc" id="L1022">        this.runningActionsEnergy = state.getRunningEnergy();</span>
+<span class="nc" id="L1023">        this.runningActionsCost = state.getRunningCost();</span>
+<span class="nc" id="L1024">        this.resourceBlockingAction = state.getResourceBlockingAction();</span>
+<span class="nc" id="L1025">        this.dataBlockingAction = state.getDataBlockingAction();</span>
+
+<span class="nc" id="L1027">        return state.getGaps();</span>
+    }
+
+    private void manageRunningAction(AllocatableAction action, LocalOptimizationState state) {
+
+<span class="nc" id="L1032">        Implementation impl = action.getAssignedImplementation();</span>
+<span class="nc" id="L1033">        MOSchedulingInformation actionDSI = (MOSchedulingInformation) action.getSchedulingInfo();</span>
+
+        // Set start Time
+<span class="nc" id="L1036">        Long startTime = action.getStartTime();</span>
+        long start;
+<span class="nc bnc" id="L1038" title="All 2 branches missed.">        if (startTime != null) {</span>
+<span class="nc" id="L1039">            start = startTime - state.getId();</span>
+        } else {
+<span class="nc" id="L1041">            start = 0;</span>
+        }
+<span class="nc" id="L1043">        actionDSI.setExpectedStart(start);</span>
+
+        // Set End Time
+<span class="nc" id="L1046">        MOProfile p = (MOProfile) getProfile(impl);</span>
+<span class="nc" id="L1047">        long endTime = start;</span>
+<span class="nc bnc" id="L1048" title="All 2 branches missed.">        if (p != null) {</span>
+<span class="nc" id="L1049">            endTime += p.getAverageExecutionTime();</span>
+        }
+<span class="nc bnc" id="L1051" title="All 2 branches missed.">        if (endTime &lt; 0) {</span>
+<span class="nc" id="L1052">            endTime = 0;</span>
+        }
+<span class="nc" id="L1054">        actionDSI.setExpectedEnd(endTime);</span>
+
+<span class="nc" id="L1056">        actionDSI.clearPredecessors();</span>
+<span class="nc" id="L1057">        actionDSI.clearSuccessors();</span>
+<span class="nc" id="L1058">        actionDSI.setToReschedule(false);</span>
+<span class="nc" id="L1059">        state.runningAction(impl, p, endTime);</span>
+<span class="nc" id="L1060">    }</span>
+
+    private boolean tryToLaunch(AllocatableAction action) {
+<span class="nc" id="L1063">        boolean launched = false;</span>
+        try {
+<span class="nc" id="L1065">            action.tryToLaunch();</span>
+<span class="nc" id="L1066">            launched = true;</span>
+<span class="nc" id="L1067">        } catch (InvalidSchedulingException ise) {</span>
+            // Nothing to do
+<span class="nc" id="L1069">        }</span>
+<span class="nc bnc" id="L1070" title="All 2 branches missed.">        if (!launched) {</span>
+<span class="nc" id="L1071">            Score aScore = new MOScore(action.getPriority(), action.getGroupPriority(), 0, 0, 0, 0, 0);</span>
+            try {
+<span class="nc" id="L1073">                action.schedule(aScore);</span>
+                try {
+<span class="nc" id="L1075">                    action.tryToLaunch();</span>
+<span class="nc" id="L1076">                } catch (InvalidSchedulingException ise2) {</span>
+                    // Impossible exception.
+<span class="nc" id="L1078">                    LOGGER.error(ise2);</span>
+<span class="nc" id="L1079">                }</span>
+<span class="nc" id="L1080">            } catch (BlockedActionException | UnassignedActionException be) {</span>
+                // Can not happen since there was an original source
+<span class="nc" id="L1082">                LOGGER.error(be);</span>
+<span class="nc" id="L1083">            }</span>
+        }
+<span class="nc" id="L1085">        return launched;</span>
+    }
+
+    /**
+     * Returns an action scan comparator.
+     * 
+     * @return An action scan comparator.
+     */
+    public static final Comparator&lt;AllocatableAction&gt; getScanComparator() {
+<span class="nc" id="L1094">        return new Comparator&lt;AllocatableAction&gt;() {</span>
+
+            @Override
+            public int compare(AllocatableAction action1, AllocatableAction action2) {
+<span class="nc" id="L1098">                MOSchedulingInformation action1DSI = (MOSchedulingInformation) action1.getSchedulingInfo();</span>
+<span class="nc" id="L1099">                MOSchedulingInformation action2DSI = (MOSchedulingInformation) action2.getSchedulingInfo();</span>
+<span class="nc" id="L1100">                int compare = Long.compare(action2DSI.getExpectedStart(), action1DSI.getExpectedStart());</span>
+<span class="nc bnc" id="L1101" title="All 2 branches missed.">                if (compare == 0) {</span>
+<span class="nc" id="L1102">                    return Long.compare(action2.getId(), action1.getId());</span>
+                }
+<span class="nc" id="L1104">                return compare;</span>
+            }
+        };
+    }
+
+    /**
+     * Returns a ready action comparator.
+     * 
+     * @return A ready action comparator.
+     */
+    public static final Comparator&lt;AllocatableAction&gt; getReadyComparator() {
+<span class="nc" id="L1115">        return new Comparator&lt;AllocatableAction&gt;() {</span>
+
+            @Override
+            public int compare(AllocatableAction action1, AllocatableAction action2) {
+<span class="nc" id="L1119">                MOSchedulingInformation action1DSI = (MOSchedulingInformation) action1.getSchedulingInfo();</span>
+<span class="nc" id="L1120">                MOSchedulingInformation action2DSI = (MOSchedulingInformation) action2.getSchedulingInfo();</span>
+<span class="nc" id="L1121">                int compare = Long.compare(action1DSI.getExpectedStart(), action2DSI.getExpectedStart());</span>
+<span class="nc bnc" id="L1122" title="All 2 branches missed.">                if (compare == 0) {</span>
+<span class="nc" id="L1123">                    return Long.compare(action1.getId(), action2.getId());</span>
+                }
+<span class="nc" id="L1125">                return compare;</span>
+            }
+        };
+    }
+
+    private void addGap(Gap g) {
+<span class="fc" id="L1131">        AllocatableAction gapAction = g.getOrigin();</span>
+<span class="fc" id="L1132">        ResourceDescription releasedResources = g.getResources();</span>
+<span class="fc" id="L1133">        boolean merged = false;</span>
+<span class="pc bpc" id="L1134" title="1 of 2 branches missed.">        for (Gap registeredGap : this.gaps) {</span>
+<span class="nc bnc" id="L1135" title="All 2 branches missed.">            if (registeredGap.getOrigin() == gapAction) {</span>
+<span class="nc" id="L1136">                ResourceDescription registeredResources = registeredGap.getResources();</span>
+<span class="nc" id="L1137">                registeredResources.increaseDynamic(releasedResources);</span>
+<span class="nc" id="L1138">                merged = true;</span>
+<span class="nc" id="L1139">                break;</span>
+            }
+<span class="nc" id="L1141">        }</span>
+<span class="pc bpc" id="L1142" title="1 of 2 branches missed.">        if (!merged) {</span>
+<span class="fc" id="L1143">            Iterator&lt;Gap&gt; gapIt = this.gaps.iterator();</span>
+<span class="fc" id="L1144">            int index = 0;</span>
+            Gap gap;
+<span class="pc bpc" id="L1146" title="5 of 6 branches missed.">            while (gapIt.hasNext() &amp;&amp; (gap = gapIt.next()) != null &amp;&amp; gap.getInitialTime() &lt;= g.getInitialTime()) {</span>
+<span class="nc" id="L1147">                index++;</span>
+            }
+<span class="fc" id="L1149">            this.gaps.add(index, g);</span>
+        }
+<span class="fc" id="L1151">    }</span>
+
+    /**
+     * Returns the expected start of the first gap.
+     * 
+     * @return The expected start of the first gap.
+     */
+    public long getFirstGapExpectedStart() {
+<span class="nc" id="L1159">        Gap g = this.gaps.peekFirst();</span>
+<span class="nc bnc" id="L1160" title="All 2 branches missed.">        if (g == null) {</span>
+<span class="nc" id="L1161">            return 0;</span>
+        }
+<span class="nc" id="L1163">        return g.getInitialTime();</span>
+    }
+
+    /**
+     * Returns the expected start of the last gap.
+     * 
+     * @return The expected start of the last gap.
+     */
+    public long getLastGapExpectedStart() {
+<span class="nc" id="L1172">        Gap g = this.gaps.peekLast();</span>
+<span class="nc bnc" id="L1173" title="All 2 branches missed.">        if (g == null) {</span>
+<span class="nc" id="L1174">            return 0;</span>
+        }
+<span class="nc" id="L1176">        return g.getInitialTime();</span>
+    }
+
+    @Override
+    public Profile generateProfileForImplementation(Implementation impl, JSONObject jsonImpl) {
+<span class="fc" id="L1181">        return new MOProfile(jsonImpl);</span>
+    }
+
+    @Override
+    public Profile generateProfileForRun(AllocatableAction action) {
+<span class="nc" id="L1186">        return new MOProfile(action.getAssignedImplementation(), this.myWorker);</span>
+    }
+
+    /**
+     * Returns the idle power.
+     * 
+     * @return The idle power.
+     */
+    public double getIdlePower() {
+<span class="fc" id="L1195">        return this.idlePower;</span>
+    }
+
+    /**
+     * Returns the energy consumed by the run (past) actions.
+     * 
+     * @return The energy consumed by the run (past) actions.
+     */
+    public double getRunActionsEnergy() {
+<span class="nc" id="L1204">        return this.runActionsEnergy;</span>
+    }
+
+    /**
+     * Returns the energy consumed by the running actions.
+     * 
+     * @return The energy consumed by the running actions.
+     */
+    public double getRunningActionsEnergy() {
+<span class="nc" id="L1213">        return this.runningActionsEnergy;</span>
+    }
+
+    /**
+     * Returns the energy consumed by the scheduled actions.
+     * 
+     * @return The energy consumed by the scheduled actions.
+     */
+    public double getScheduledActionsEnergy() {
+<span class="nc" id="L1222">        return this.pendingActionsEnergy;</span>
+    }
+
+    /**
+     * Returns the idle price.
+     * 
+     * @return The idle price.
+     */
+    public double getIdlePrice() {
+<span class="fc" id="L1231">        return this.idlePrice;</span>
+    }
+
+    /**
+     * Returns the cost of the run (past) actions.
+     * 
+     * @return The cost of the run (past) actions.
+     */
+    public double getRunActionsCost() {
+<span class="nc" id="L1240">        return this.runActionsCost;</span>
+    }
+
+    /**
+     * Returns the cost of the running actions.
+     * 
+     * @return The cost of the running actions.
+     */
+    public double getRunningActionsCost() {
+<span class="nc" id="L1249">        return this.runningActionsCost;</span>
+    }
+
+    /**
+     * Returns the cost of the scheduled actions.
+     * 
+     * @return The cost of the scheduled actions.
+     */
+    public double getScheduledActionsCost() {
+<span class="nc" id="L1258">        return this.pendingActionsCost;</span>
+    }
+
+    /**
+     * Returns the maximum simultaneous runs of the given implementation.
+     * 
+     * @param impl Implementation.
+     * @return The maximum simultaneous runs of the given implementation.
+     */
+    public int getSimultaneousCapacity(Implementation impl) {
+<span class="nc" id="L1268">        return this.myWorker.fitCount(impl);</span>
+    }
+
+    /**
+     * Returns the number of executions per implementation per core.
+     * 
+     * @return The number of executions per implementation per core.
+     */
+    public int[][] getImplementationCounts() {
+<span class="nc" id="L1277">        return this.implementationsCount;</span>
+    }
+
+    /**
+     * Returns the expected end time.
+     * 
+     * @return The expected end time.
+     */
+    public long getExpectedEndTimeRunning() {
+<span class="nc" id="L1286">        return this.expectedEndTimeRunning;</span>
+    }
+
+    /**
+     * Returns the number of executions per implementation per core running at the moment.
+     * 
+     * @return The number of executions per implementation per core running at the moment.
+     */
+    public int[][] getRunningImplementationCounts() {
+<span class="nc" id="L1295">        return this.runningImplementationsCount;</span>
+    }
+
+    @Override
+    public PriorityQueue&lt;AllocatableAction&gt; getBlockedActions() {
+<span class="nc" id="L1300">        PriorityQueue&lt;AllocatableAction&gt; blockedActions = new PriorityQueue&lt;&gt;(20, new Comparator&lt;AllocatableAction&gt;() {</span>
+
+            @Override
+            public int compare(AllocatableAction a1, AllocatableAction a2) {
+<span class="nc" id="L1304">                Score score1 = generateBlockedScore(a1);</span>
+<span class="nc" id="L1305">                Score score2 = generateBlockedScore(a2);</span>
+<span class="nc" id="L1306">                return score1.compareTo(score2);</span>
+            }
+        });
+
+<span class="nc" id="L1310">        blockedActions.addAll(super.getBlockedActions());</span>
+
+<span class="nc" id="L1312">        MOSchedulingInformation baDSI = (MOSchedulingInformation) this.dataBlockingAction.getSchedulingInfo();</span>
+<span class="nc" id="L1313">        baDSI.lock();</span>
+<span class="nc" id="L1314">        blockedActions.addAll(baDSI.getSuccessors());</span>
+<span class="nc" id="L1315">        baDSI.unlock();</span>
+
+<span class="nc" id="L1317">        baDSI = (MOSchedulingInformation) this.resourceBlockingAction.getSchedulingInfo();</span>
+<span class="nc" id="L1318">        baDSI.lock();</span>
+<span class="nc" id="L1319">        blockedActions.addAll(baDSI.getSuccessors());</span>
+<span class="nc" id="L1320">        baDSI.unlock();</span>
+
+<span class="nc" id="L1322">        return blockedActions;</span>
+    }
+
+    @Override
+    public JSONObject toJSONObject() {
+<span class="fc" id="L1327">        JSONObject json = super.toJSONObject();</span>
+<span class="fc" id="L1328">        json.put(&quot;idlePower&quot;, this.idlePower);</span>
+<span class="fc" id="L1329">        json.put(&quot;idlePrice&quot;, this.idlePrice);</span>
+<span class="fc" id="L1330">        return json;</span>
+    }
+
+    @Override
+    public JSONObject updateJSON(JSONObject oldResource) {
+<span class="nc" id="L1335">        JSONObject difference = super.updateJSON(oldResource);</span>
+<span class="nc" id="L1336">        double diff = this.idlePower;</span>
+<span class="nc bnc" id="L1337" title="All 2 branches missed.">        if (oldResource.has(&quot;idlePower&quot;)) {</span>
+<span class="nc" id="L1338">            diff -= oldResource.getDouble(&quot;idlePower&quot;);</span>
+        }
+<span class="nc" id="L1340">        difference.put(&quot;idlePower&quot;, diff);</span>
+<span class="nc" id="L1341">        oldResource.put(&quot;idlePower&quot;, idlePower);</span>
+
+<span class="nc" id="L1343">        diff = this.idlePrice;</span>
+<span class="nc bnc" id="L1344" title="All 2 branches missed.">        if (oldResource.has(&quot;idlePrice&quot;)) {</span>
+<span class="nc" id="L1345">            diff -= oldResource.getDouble(&quot;idlePrice&quot;);</span>
+        }
+<span class="nc" id="L1347">        difference.put(&quot;idlePrice&quot;, diff);</span>
+<span class="nc" id="L1348">        oldResource.put(&quot;idlePrice&quot;, idlePrice);</span>
+<span class="nc" id="L1349">        return difference;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

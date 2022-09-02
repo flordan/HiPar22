@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<checkstyle version="8.18">
+<file name="/home/flordan/git/compss/framework/compss/runtime/scheduler/readyScheduler/src/main/java/es/bsc/compss/scheduler/ready/ReadyResourceScheduler.java">
+</file>
+<file name="/home/flordan/git/compss/framework/compss/runtime/scheduler/readyScheduler/src/main/java/es/bsc/compss/scheduler/ready/ReadyScheduler.java">
+</file>
+</checkstyle>
